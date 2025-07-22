@@ -25,6 +25,15 @@ mode = "sequential"
 task = "shell.exec"
 args = "node index.js"
 
+[[workflows.workflow]]
+name = "Start Frontend"
+author = 42384360
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd plangenie-frontend && npm start"
+
 [[ports]]
 localPort = 5000
 externalPort = 80
