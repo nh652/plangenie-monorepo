@@ -11,6 +11,36 @@ app.use(express.static('public'));
 
 let plans = [];
 
+function flattenPlans(data) {
+  const flat = [];
+
+  const providers = data.telecom_providers;
+
+  for (const [operator, operatorData] of Object.entries(providers)) {
+    const planSections = operatorData.plans;
+
+    for (const planType of Object.values(planSections)) {
+      if (Array.isArray(planType)) {
+        // e.g., postpaid: []
+        for (const plan of planType) {
+          flat.push({ ...plan, operator });
+        }
+      } else if (typeof planType === 'object') {
+        // e.g., prepaid: { monthly_plans: [], voice_only_plans: [] }
+        for (const planGroup of Object.values(planType)) {
+          if (Array.isArray(planGroup)) {
+            for (const plan of planGroup) {
+              flat.push({ ...plan, operator });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return flat;
+}
+
 async function fetchPlansFromGitHub() {
   const url = "https://raw.githubusercontent.com/nh652/TelcoPlans/main/telecom_plans_improved.json";
   try {
