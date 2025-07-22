@@ -84,6 +84,11 @@ app.post("/query", async (req, res) => {
   try {
     const filters = await extractFiltersViaLLM(userInput);
 
+    if (!Array.isArray(plans)) {
+      console.error("❌ Plans is not an array:", plans);
+      return res.status(500).json({ error: "Plan data is corrupted or unavailable" });
+    }
+
     const matched = plans.filter(plan => {
       if (filters.operator && !plan.operator.toLowerCase().includes(filters.operator.toLowerCase())) return false;
       if (filters.budget && plan.price > filters.budget) return false;
