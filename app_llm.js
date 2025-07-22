@@ -70,6 +70,32 @@ app.get('/api/plans', (req, res) => {
   res.json(plans);
 });
 
+app.post("/query", async (req, res) => {
+  const userInput = req.body.text || req.body.message || "";
+
+  try {
+    const filters = await extractFiltersViaLLM(userInput);
+
+    const matched = plans.filter(plan => {
+      if (filters.operator && !plan.operator.toLowerCase().includes(filters.operator.toLowerCase())) return false;
+      if (filters.budget && plan.price > filters.budget) return false;
+      if (filters.validity && !plan.validity.toLowerCase().includes(filters.validity.toLowerCase())) return false;
+      if (filters.type && !plan.type.toLowerCase().includes(filters.type.toLowerCase())) return false;
+      return true;
+    });
+
+    res.json({
+      filters,
+      count: matched.length,
+      plans: matched
+    });
+
+  } catch (err) {
+    console.error("❌ LLM error:", err);
+    res.status(500).json({ error: "Failed to process request" });
+  }
+});
+
 // Start server
 fetchPlansFromGitHub();
 app.listen(PORT, '0.0.0.0', () => {
