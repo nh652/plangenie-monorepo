@@ -46,11 +46,10 @@ async function fetchPlansFromGitHub() {
   try {
     const res = await fetch(url);
     const data = await res.json();
-    plans = Array.isArray(data) ? data : [];
-    console.log("✅ Telecom plans loaded from GitHub");
+    plans = flattenPlans(data);
+    console.log(`✅ Loaded ${plans.length} plans from GitHub`);
   } catch (err) {
     console.error("❌ Failed to fetch plans:", err.message);
-    plans = []; // Ensure plans is always an array
   }
 }
 
