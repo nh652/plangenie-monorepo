@@ -1,48 +1,103 @@
-// ✅ PlanGenie-LLM - Full Featured AI Backend in One File
+
 require('dotenv').config();
 const express = require('express');
 const fetch = require('node-fetch');
 const bodyParser = require('body-parser');
-const app = express();
-const PORT = process.env.PORT || 5000;
 
-let plans = [];
-let lastUsedFilters = null; // for /more requests
+const app = express();
+app.use(bodyParser.json());
+
+const PORT = process.env.PORT || 5000;
 const GITHUB_JSON_URL = 'https://raw.githubusercontent.com/nh652/TelcoPlans/main/telecom_plans_improved.json';
 
-// 🧠 Step 1: Fetch and Flatten Plan Data
-async function fetchAndFlattenPlans() {
-  try {
-    const res = await fetch(GITHUB_JSON_URL);
-    const rawData = await res.json();
-    const flattened = [];
-    const providers = rawData.telecom_providers || {};
+let cachedPlans = null, lastPlanFetch = 0;
+const PLAN_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
-    for (const operator in providers) {
-      const categories = providers[operator].plans || {};
-      for (const type in categories) {
-        const segments = categories[type];
-        if (Array.isArray(segments)) {
-          segments.forEach(p => flattened.push({ operator, ...p }));
-        } else {
-          for (const seg in segments) {
-            segments[seg].forEach(p => flattened.push({ operator, ...p }));
-          }
-        }
+const requests = new Map();
+const REQ_RATE_LIMIT = 30;
+const REQ_WINDOW = 60 * 1000; // 1 minute
+const responseCache = new Map();
+const RESPONSE_CACHE_TTL = 5 * 60 * 1000; // 5 min
+
+const OPERATORS = ['jio', 'airtel', 'vi'];
+const OPERATOR_CORRECTIONS = { geo:'jio', artel:'airtel', 'vodafone idea': 'vi', vodaphone:'vi', idea:'vi' };
+const MONTH_MAPPINGS = {
+  '1 month': 28,    'one month': 28,   'a month': 28,
+  '2 month': 56,    'two month': 56,   '2 months': 56,   'two months': 56,
+  '3 month': 84,    'three month': 84, '3 months': 84,   'three months': 84
+};
+const MAX_PAGE = 3;
+
+function log(...args){ return process.env.NODE_ENV !== 'test' && console.log(...args); }
+function pickRandom(arr) { return arr[Math.floor(Math.random()*arr.length)]; }
+
+function correctOperatorName(text) {
+  if (!text) return null;
+  const normalized = text.toLowerCase();
+  if (OPERATOR_CORRECTIONS[normalized]) return OPERATOR_CORRECTIONS[normalized];
+  if (normalized.includes('jio') || normalized.includes('geo')) return 'jio';
+  if (normalized.includes('airtel') || normalized.includes('artel')) return 'airtel';
+  if (normalized.includes('vi') || normalized.includes('vodafone') || normalized.includes('idea')) return 'vi';
+  return null;
+}
+function parseValidity(val) {
+  if (typeof val === 'number') return val;
+  if (!val) return null;
+  const s = val.toString().toLowerCase();
+  if (MONTH_MAPPINGS[s]) return MONTH_MAPPINGS[s];
+  if (s.includes('month')) { const m = s.match(/(\d+)/); if(m) return parseInt(m[1])*30; }
+  if (s.includes('week'))  { const m = s.match(/(\d+)/); if(m) return parseInt(m[1])*7; }
+  if (s.includes('year'))  { const m = s.match(/(\d+)/); if(m) return parseInt(m[1])*365; }
+  if (s.includes('day'))   { const m = s.match(/(\d+)/); if(m) return parseInt(m[1]); }
+  const m = s.match(/(\d+)/);
+  return m ? parseInt(m[1]) : null;
+}
+function parseDataAllowance(dataStr){
+  if (!dataStr) return null;
+  if (dataStr.toLowerCase().includes('unlimited')) return Infinity;
+  const g = dataStr.match(/(\d+(\.\d+)?)\s*GB/i); if(g) return +g[1];
+  const m = dataStr.match(/(\d+)\s*MB/i); if(m) return +m[1]/1024;
+  return null;
+}
+async function fetchAndCachePlans(retries=2){
+  const now = Date.now();
+  if (!cachedPlans || (now - lastPlanFetch) > PLAN_CACHE_TTL) {
+    for (let i=0; i <= retries; i++) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        const response = await fetch(GITHUB_JSON_URL, { headers: {'User-Agent':'PlanGenie/2.0'}, signal:controller.signal });
+        clearTimeout(timeout);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        cachedPlans = await response.json();
+        lastPlanFetch = now;
+        log('✅ Plans re-fetched');
+        break;
+      } catch(e){
+        log('❌ Plans fetch error (try',i+1,'):',e.message);
+        await new Promise(r=>setTimeout(r,1000*(i+1)));
       }
     }
-
-    plans = flattened;
-    console.log('✅ Telecom plans loaded and flattened');
-  } catch (err) {
-    console.error('❌ Failed to load plan data:', err.message);
   }
+  if (!cachedPlans) throw new Error('Failed to load plan data');
+  return cachedPlans;
+}
+function flattenPlans(data) {
+  let flat = [];
+  for (const op in data.telecom_providers) {
+    const prov = data.telecom_providers[op];
+    for (const type of ['prepaid','postpaid']) {
+      const group = prov.plans?.[type]; 
+      if (!group) continue;
+      if (Array.isArray(group)) flat.push(...group.map(p=>({...p,operator:op,type})));
+      else for (const k of Object.keys(group)) flat.push(...group[k].map(p=>({...p,operator:op,type})));
+    }
+  }
+  return flat;
 }
 
-// 🔍 Step 2: Extract Filters via OpenRouter
 async function extractFiltersViaLLM(userText) {
-  const prompt = `Extract operator, budget (in ₹), validity (in days), and plan type from this: "${userText}". Respond in JSON only like: {"operator":..., "budget":..., "validity":..., "type":...}`;
-
+  const prompt = `Extract operator, budget (₹), validity (days), plan type, and feature list (like "ott", "international roaming", "voice only", "data only") from this: "${userText}". Respond as: {"operator":...,"budget":...,"validity":...,"type":...,"features":...}`;
   try {
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
@@ -53,89 +108,218 @@ async function extractFiltersViaLLM(userText) {
       body: JSON.stringify({
         model: 'openai/gpt-3.5-turbo',
         messages: [
-          { role: 'system', content: 'You extract structured filters from natural queries.' },
+          { role: 'system', content: 'You extract structured filters from user queries.' },
           { role: 'user', content: prompt }
         ]
       })
     });
-
     const data = await res.json();
-    const text = data.choices?.[0]?.message?.content || '';
-    console.log('🧠 LLM raw reply:', text);
-
-    return JSON.parse(text);
+    return JSON.parse(data.choices?.[0]?.message?.content || '{}');
   } catch (err) {
-    console.error('❌ LLM error:', err.message);
+    log('❌ LLM extraction error:', err.message);
     return {};
   }
 }
+function inferSimpleIntent(text){
+  const s = text.trim().toLowerCase();
+  if (["hi","hello","hey"].includes(s)) return { greeting:true };
+  if (s.includes('thank')) return { thanks:true };
+  if (s.includes('bye') || s.includes('goodbye')) return { bye:true };
+  if (s.includes('how are you')) return { howareyou:true };
+  if (s.includes('show more') || s.includes('more plans') || s === 'more') return { showmore:true };
+  if (s.includes('feedback') || s.includes('helpful') || ['👍','👎'].some(e=>s.includes(e))) return { feedback:true };
+  return {};
+}
 
-// 🧹 Step 3: Match Plans with Filters
-function matchPlans(filters, all = false) {
-  let result = plans;
+function filterAndRankPlans(plans, filter, pageOffset=0, pageSize=MAX_PAGE) {
+  let set = plans;
+  if (filter.operator) set = set.filter(p => p.operator === filter.operator);
+  if (filter.type)     set = set.filter(p => (p.type||'').toLowerCase() === filter.type.toLowerCase());
+  if (filter.budget)   set = set.filter(p => Number(p.price) <= filter.budget);
+  if (filter.validity) set = set.filter(p => parseValidity(p.validity) && parseValidity(p.validity) >= filter.validity);
+  if (filter.features && filter.features.length)
+    for (const f of filter.features)
+      set = set.filter(p => [p.benefits,p.additional_benefits,p.description].filter(Boolean).join(' ').toLowerCase().includes(f.toLowerCase()));
+  if (filter.features && filter.features.includes("voice only")) set = set.filter(p =>
+    (!parseDataAllowance(p.data) || parseDataAllowance(p.data) < 0.05)
+  );
+  if (filter.features && filter.features.includes("data only")) set = set.filter(p =>
+    parseDataAllowance(p.data) && !/voice|call/i.test([p.benefits, p.description, p.additional_benefits].join(" "))
+  );
+  set = set.sort((a, b) => Number(a.price) - Number(b.price));
+  return { total: set.length, plans: set.slice(pageOffset, pageOffset + pageSize) };
+}
 
-  if (filters.operator)
-    result = result.filter(p => p.operator.toLowerCase().includes(filters.operator.toLowerCase()));
+// Main conversational LLM-powered reply
+async function generateDynamicReplyLLM(userText, filters, plans, total, pageOffset) {
+  if (!plans || plans.length === 0) return null;
+  // Compose plan summaries for the prompt
+  const startNum = pageOffset+1;
+  const planList = plans.map((p, i) => 
+    `${startNum+i}. ₹${p.price}, ${p.data||''}, ${p.validity} days${p.benefits?`, Features: ${p.benefits}`:''}${p.additional_benefits?`, Extra: ${p.additional_benefits}`:''}`
+  ).join('\n');
+  // Build a system prompt that enforces friendliness and conciseness
+  const prompt = `
+You're a helpful, friendly telecom plan expert chatting with a user.
+The user said: "${userText}"
+Here are the matching plans to show (out of ${total} total):
+${planList}
 
-  if (filters.budget)
-    result = result.filter(p => p.price <= filters.budget);
+Please:
+- Greet the user by name if possible, else say 'Hi' or 'Hey there'.
+- Briefly summarize what you found.
+- Highlight any good/best value or standout plans (mention plan number).
+- Point out differences useful to the user's query (OTT, validity, price, data).
+- Suggest a next action (e.g., "ask for more plans", "change budget", etc.).
+Keep your reply concise, conversational and natural—like a smart human, not a robot!
+`;
 
-  if (filters.validity)
-    result = result.filter(p => Number(p.validity) >= filters.validity);
-
-  if (filters.type) {
-    const type = filters.type.toLowerCase();
-    if (type.includes('voice'))
-      result = result.filter(p => (p.category || '').toLowerCase().includes('voice'));
-    else if (type.includes('data'))
-      result = result.filter(p => (p.data || '').includes('GB'));
-    else if (['prepaid', 'postpaid'].includes(type))
-      result = result.filter(p => (p.type || '').toLowerCase() === type);
+  try {
+    const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'openai/gpt-3.5-turbo',
+        messages: [
+          { role: 'system', content: 'Talk like a helpful telecom plan expert.' },
+          { role: 'user', content: prompt }
+        ]
+      }),
+      timeout: 3500
+    });
+    const data = await resp.json();
+    if (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) {
+      return data.choices[0].message.content.trim();
+    }
+    return null;
+  } catch (err) {
+    log('[LLM-output] LLM failed:', err.message);
+    return null;
   }
-
-  result = result.sort((a, b) => a.price - b.price);
-  return all ? result : result.slice(0, 8);
 }
 
-// 🎯 Step 4: Smart Response
-function formatReply(plans, filters) {
-  if (plans.length === 0) return `🙁 Sorry, I couldn't find any ${filters.operator || ''} plans under ₹${filters.budget || ''}. Try changing your query!`;
-  return `📦 Showing ${plans.length} ${filters.operator || ''} plans${filters.budget ? ' under ₹' + filters.budget : ''}:`;
+// Fallback/static formatter
+function formatResponse({ plans, total }, filter, { pageOffset }) {
+  if (plans.length === 0) {
+    return `🙁 No ${filter.operator||''} plans under ₹${filter.budget||''}${filter.validity?` with at least ${filter.validity} days validity`:''}${filter.type?` (${filter.type})`:''} found. Try changing your filters!`;
+  }
+  let s = `📦 Showing ${plans.length} ${filter.operator||''} ${filter.type||''} plans${filter.budget ? ` under ₹${filter.budget}` : ''}${filter.validity ? ` (≥${filter.validity} days)` : ''}:\n\n`;
+  s += plans.map((p,i)=> {
+    const validity = typeof p.validity === 'number' ? p.validity+" days" : p.validity;
+    return `${pageOffset+1+i}. ₹${p.price}: ${p.data||''}, ${validity||''}${p.benefits?` (${p.benefits})`:''}${p.additional_benefits?', '+p.additional_benefits:''}`;
+  }).join('\n');
+  s += `\n\n(Showing ${pageOffset+1}-${pageOffset+plans.length} of ${total})`;
+  if (total > pageOffset+plans.length) s += "\nAsk for 'more' for additional plans.";
+  return s.trim();
 }
 
-// 🌐 API
-app.use(bodyParser.json());
+// Rate limiting middleware
+app.use((req, res, next) => {
+  const ip = req.ip;
+  const now = Date.now();
+  if (!requests.has(ip)) requests.set(ip, { count:0, next:now+REQ_WINDOW });
+  const reqInfo = requests.get(ip);
+  if (now>reqInfo.next) { reqInfo.count=0; reqInfo.next=now+REQ_WINDOW; }
+  if (reqInfo.count++ > REQ_RATE_LIMIT) return res.status(429).json({ error:"Rate limit exceeded. Please wait." });
+  next();
+});
 
-app.get('/', (req, res) => {
-  res.send('📡 PlanGenie-LLM is live');
+// Routes
+app.get('/', (req, res) => res.send('📡 PlanGenie-LLM v3 (GPT-powered human-like replies) is live!'));
+
+app.get('/health', async (req, res) => {
+  const start = Date.now();
+  try {
+    await fetchAndCachePlans();
+    return res.json({
+      status: 'healthy', uptime: process.uptime(),
+      lastFetched: new Date(lastPlanFetch).toISOString(),
+      loadMs: Date.now()-start
+    });
+  } catch(e){
+    return res.status(503).json({ status:"unhealthy", error:e.message });
+  }
 });
 
 app.post('/query', async (req, res) => {
-  const text = req.body.text || '';
-  if (!text) return res.status(400).json({ error: 'Query text is required' });
+  const userText = (req.body.text || '').trim();
+  if (!userText) return res.status(400).json({ error: 'Query text is required' });
 
-  const filters = await extractFiltersViaLLM(text);
-  const matched = matchPlans(filters);
-  lastUsedFilters = filters;
+  // Check intent for meta-chat
+  const simpleIntent = inferSimpleIntent(userText);
+  if (simpleIntent.greeting) return res.json({ reply: pickRandom([
+    "Hello! 😊 How can I help you find the right mobile plan today?",
+    "Hi there! Ask me for any prepaid or postpaid plan details."
+  ]) });
+  if (simpleIntent.thanks)   return res.json({ reply: pickRandom([
+    "You're welcome! Let me know if you want to explore more plans.",
+    "Glad to help! Ask anytime. 👍"
+  ])});
+  if (simpleIntent.bye)      return res.json({ reply: pickRandom([
+    "Goodbye! Hope you get the perfect plan.",
+    "Take care! Come back if you need more help later."
+  ]) });
 
-  res.json({
-    filters,
-    count: matched.length,
-    reply: formatReply(matched, filters),
-    plans: matched
-  });
+  let pageOffset = 0, lastFilters = {};
+  if (simpleIntent.showmore) {
+    lastFilters = req.body.lastFilters || {};
+    pageOffset = (req.body.lastOffset || 0) + MAX_PAGE;
+  }
+
+  // Cache lookup
+  const cacheKey = JSON.stringify({ userText, pageOffset, ...(lastFilters||{}) });
+  if (responseCache.has(cacheKey)) {
+    const c = responseCache.get(cacheKey);
+    if (Date.now()-c.ts < RESPONSE_CACHE_TTL) {
+      log('✅ CacheHit');
+      return res.json(c.data);
+    }
+  }
+
+  try {
+    await fetchAndCachePlans();
+    const plansFlat = flattenPlans(cachedPlans);
+
+    // LLM extraction only for fresh queries
+    let filters = lastFilters;
+    if (!simpleIntent.showmore) {
+      filters = await extractFiltersViaLLM(userText);
+      filters = filters || {};
+      if (filters.operator) filters.operator = correctOperatorName(filters.operator) || filters.operator;
+      if (filters.type)    filters.type = filters.type.toLowerCase();
+      if (filters.features && typeof(filters.features)==="string") filters.features = filters.features.split(",").map(f=>f.trim());
+      else if (!filters.features) filters.features = [];
+    }
+    // Get plans
+    const { total, plans } = filterAndRankPlans(plansFlat, filters, pageOffset, MAX_PAGE);
+
+    // AI-generated human-like reply!
+    let reply = await generateDynamicReplyLLM(userText, filters, plans, total, pageOffset);
+    if (!reply) reply = formatResponse({plans,total}, filters, {pageOffset}); // fallback
+
+    // Compose output
+    const out = {
+      filters, count: plans.length, total,
+      offset: pageOffset,
+      reply,
+      plans,
+      nextOffset: (pageOffset+plans.length<total) ? pageOffset+MAX_PAGE : null,
+    };
+    responseCache.set(cacheKey, { ts: Date.now(), data: out });
+    return res.json(out);
+  } catch(e){
+    log('❌ Query processing error:', e.message);
+    return res.status(500).json({ error: e.message });
+  }
 });
 
-app.get('/more', (req, res) => {
-  if (!lastUsedFilters) return res.status(400).json({ error: 'No previous query found' });
-  const all = matchPlans(lastUsedFilters, true);
-  res.json({
-    count: all.length,
-    reply: `🔁 Showing more plans (${all.length})`,
-    plans: all.slice(8, 16)
-  });
+// Error handler
+app.use((err, req, res, _next)=>{
+  log('Global error:', err.message, err.stack);
+  res.status(500).json({ error:'Sorry, a server error occurred.' });
 });
 
-// 🔄 Init
-fetchAndFlattenPlans();
-app.listen(PORT, '0.0.0.0', () => console.log(`🚀 PlanGenie-LLM running at ${PORT}`));
+app.listen(PORT, '0.0.0.0', ()=>log(`🚀 PlanGenie-LLM (fully humanlike replies!) running at ${PORT}`));
