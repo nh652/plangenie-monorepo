@@ -38,14 +38,18 @@ async function extractFiltersViaLLM(userInput) {
       messages: [
         {
           role: "system",
-          content: `You are a filter extractor for a telecom plan chatbot. From user input, extract these:
+          content: `You are a smart filter extractor for a telecom plan search assistant.
+
+From the user's sentence, extract these filters as JSON:
 - operator (like jio, airtel, vi)
-- budget (₹)
+- budget (number only, in rupees)
 - validity (e.g., 28 days)
 - type (data, voice, combo)
 
-If anything is missing, use null. Output only valid JSON like:
-{"operator":"jio","budget":300,"validity":"28 days","type":"combo"}`
+Respond ONLY with JSON, like:
+{"operator":"jio","budget":200,"validity":"28 days","type":"combo"}
+
+If a field is missing in the user's sentence, return it as null. Do not write anything else.`
         },
         { role: "user", content: userInput }
       ]
@@ -53,6 +57,7 @@ If anything is missing, use null. Output only valid JSON like:
   });
 
   const data = await response.json();
+  console.log("🔍 Full API response:", JSON.stringify(data, null, 2));
   const raw = data.choices?.[0]?.message?.content?.trim();
   console.log("🧠 LLM raw reply:", raw);
 
