@@ -2,6 +2,8 @@
 require('dotenv').config();
 const express = require('express');
 const fetch = require('node-fetch');
+const OpenAI = require('openai');
+const openai = new OpenAI({ apiKey: process.env.OPENROUTER_API_KEY });
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -10,6 +12,41 @@ app.use(express.json());
 app.use(express.static('public'));
 
 let plans = [];
+
+const operatorMap = {
+  jio: 'jio',
+  airtel: 'airtel',
+  vi: 'vi',
+  vodafone: 'vi',
+};
+
+const keywordsForVoiceOnly = ['voice only', 'calling only', 'call only'];
+const durationAliases = {
+  '28': 1, '30': 1, '56': 2, '60': 2,
+  '84': 3, '90': 3, '336': 12, '365': 12
+};
+
+function normalizeDuration(days) {
+  const val = String(days);
+  return durationAliases[val] || null;
+}
+
+function flattenPlansNested(nested) {
+  const result = [];
+  for (const category in nested) {
+    if (Array.isArray(nested[category])) {
+      result.push(...nested[category]);
+    } else {
+      result.push(...flattenPlansNested(nested[category]));
+    }
+  }
+  return result;
+}
+
+function paginate(arr, page = 1, pageSize = 8) {
+  const start = (page - 1) * pageSize;
+  return arr.slice(start, start + pageSize);
+}
 
 function flattenPlans(data) {
   const flat = [];
@@ -46,60 +83,33 @@ async function fetchPlansFromGitHub() {
   try {
     const res = await fetch(url);
     const data = await res.json();
-    plans = flattenPlans(data);
-    console.log(`✅ Loaded ${plans.length} plans from GitHub`);
+    plans = data; // Store raw nested data for new logic
+    console.log(`✅ Loaded plans data from GitHub`);
   } catch (err) {
     console.error("❌ Failed to fetch plans:", err.message);
   }
 }
 
-async function extractFiltersViaLLM(userInput) {
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
-      "HTTP-Referer": "https://your-replit-url.repl.co/",  // use your Replit domain
-      "X-Title": "PlanGenie LLM"
-    },
-    body: JSON.stringify({
-      model: "openai/gpt-3.5-turbo",
-      messages: [
-        {
-          role: "system",
-          content: `You are a smart filter extractor for a telecom plan search assistant.
+async function extractFiltersViaLLM(message) {
+  const prompt = `
+Extract operator (jio, airtel, vi), budget (₹ amount), validity (in days), and plan type (voice only, data only, postpaid, prepaid, etc) from the following user message. Respond in strict JSON like:
+{"operator":"jio","budget":200,"validity":28,"type":"prepaid"}
 
-From the user's sentence, extract these filters as JSON:
-- operator (like jio, airtel, vi)
-- budget (number only, in rupees)
-- validity (e.g., 28 days)
-- type (data, voice, combo)
-
-Respond ONLY with JSON, like:
-{"operator":"jio","budget":200,"validity":"28 days","type":"combo"}
-
-If a field is missing in the user's sentence, return it as null. Do not write anything else.`
-        },
-        { role: "user", content: userInput }
-      ]
-    })
-  });
-
-  const data = await response.json();
-  console.log("🔍 Full API response:", JSON.stringify(data, null, 2));
-  const raw = data.choices?.[0]?.message?.content?.trim();
-  console.log("🧠 LLM raw reply:", raw);
-
+User message: "${message}"
+`;
   try {
-    return JSON.parse(raw);
-  } catch (e) {
-    console.warn("⚠️ GPT returned non-JSON:", raw);
-    return {
-      operator: null,
-      budget: null,
-      validity: null,
-      type: null
-    };
+    const response = await openai.chat.completions.create({
+      model: 'openchat/openchat-3.5-1210',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.3,
+    });
+
+    const jsonStart = response.choices[0].message.content.indexOf('{');
+    const jsonRaw = response.choices[0].message.content.slice(jsonStart).trim();
+    return JSON.parse(jsonRaw);
+  } catch (err) {
+    console.error('❌ LLM error:', err.message);
+    return null;
   }
 }
 
@@ -112,47 +122,61 @@ app.get('/api/plans', (req, res) => {
   res.json(plans);
 });
 
-app.post("/query", async (req, res) => {
-  try {
-    const userInput = req.body.text;
-    const filters = await extractFiltersViaLLM(userInput);
-
-    console.log("🔎 Extracted filters:", filters);
-
-    if (!Array.isArray(plans)) {
-      return res.status(500).json({ error: "Plans data is not loaded." });
-    }
-
-    const matched = plans.filter(plan => {
-      if (filters.operator && plan.operator.toLowerCase() !== filters.operator.toLowerCase()) return false;
-      if (filters.budget && Number(plan.price) > Number(filters.budget)) return false;
-      if (filters.validity && !plan.validity.toLowerCase().includes(filters.validity.toLowerCase())) return false;
-      if (filters.type && plan.type && plan.type.toLowerCase() !== filters.type.toLowerCase()) return false;
-      return true;
-    });
-
-    // Format chatbot-style response
-    let reply = "";
-    if (matched.length === 0) {
-      reply = `🙁 Sorry, I couldn't find any ${filters.operator || ""} plans under ₹${filters.budget || "your budget"}. Try changing your query!`;
-    } else {
-      reply = `✅ Found ${matched.length} ${filters.operator || ""} plan${matched.length > 1 ? "s" : ""} under ₹${filters.budget || ""}:\n\n`;
-      matched.slice(0, 5).forEach((plan, i) => {
-        reply += `🔹 ₹${plan.price} - ${plan.validity}, ${plan.type}\n📄 ${plan.description}\n\n`;
-      });
-    }
-
-    res.json({
-      filters,
-      count: matched.length,
-      reply,          // 🧠 New: human-friendly message
-      plans: matched  // 🔍 Still includes raw data
-    });
-
-  } catch (err) {
-    console.error("❌ LLM error:", err.message);
-    res.status(500).json({ error: "Failed to process request" });
+app.post('/query', async (req, res) => {
+  const userMessage = req.body.text || '';
+  const filters = await extractFiltersViaLLM(userMessage);
+  if (!filters) {
+    return res.status(500).json({ error: 'LLM extraction failed' });
   }
+
+  const { operator, budget, validity, type } = filters;
+  let matchedPlans = [];
+
+  const opKey = operatorMap[operator?.toLowerCase()];
+  if (!opKey || !plans.telecom_providers[opKey]) {
+    return res.json({
+      filters,
+      count: 0,
+      reply: `🙁 I couldn't find any plans for "${operator}". Try again.`,
+      plans: [],
+    });
+  }
+
+  // Flatten all nested plans
+  const flatPlans = flattenPlansNested(plans.telecom_providers[opKey].plans);
+  matchedPlans = flatPlans.filter(plan => {
+    const priceMatch = budget ? plan.price <= budget : true;
+    const validityMatch = validity ? normalizeDuration(plan.validity) === normalizeDuration(validity) : true;
+
+    const typeMatch = type
+      ? (type.toLowerCase().includes('voice') && (plan.category?.toLowerCase().includes('voice') || plan.data === '0GB')) ||
+        (type.toLowerCase().includes('data') && plan.data !== '0GB')
+      : true;
+
+    return priceMatch && validityMatch && typeMatch;
+  });
+
+  const reply =
+    matchedPlans.length === 0
+      ? `🙁 Sorry, I couldn't find any ${operator} plans${budget ? ` under ₹${budget}` : ''}. Try changing your query!`
+      : `✅ Found ${matchedPlans.length} ${operator} plan${matchedPlans.length > 1 ? 's' : ''}${
+          budget ? ` under ₹${budget}` : ''
+        }:\n\n` +
+        paginate(matchedPlans, 1)
+          .map(
+            p =>
+              `🔹 ₹${p.price} – ${p.validity} days, ${p.type || 'prepaid'}\n📄 ${p.benefits}${
+                p.additional_benefits ? `\n✨ ${p.additional_benefits}` : ''
+              }`
+          )
+          .join('\n\n');
+
+  res.json({
+    filters,
+    count: matchedPlans.length,
+    reply,
+    plans: paginate(matchedPlans, 1),
+  });
 });
 
 // Start server
