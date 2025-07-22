@@ -1,0 +1,26 @@
+Compiled with problems:
+×
+ERROR in ./node_modules/@babel/runtime/helpers/esm/assertThisInitialized.js
+Module build failed: Error: ENOENT: no such file or directory, open '/home/runner/workspace/plangenie-frontend/node_modules/@babel/runtime/helpers/esm/assertThisInitialized.js'
+ERROR in ./node_modules/@babel/runtime/helpers/esm/extends.js
+Module build failed: Error: ENOENT: no such file or directory, open '/home/runner/workspace/plangenie-frontend/node_modules/@babel/runtime/helpers/esm/extends.js'
+ERROR in ./node_modules/@babel/runtime/helpers/esm/inheritsLoose.js
+Module build failed: Error: ENOENT: no such file or directory, open '/home/runner/workspace/plangenie-frontend/node_modules/@babel/runtime/helpers/esm/inheritsLoose.js'
+ERROR in ./node_modules/@babel/runtime/helpers/esm/objectWithoutPropertiesLoose.js
+Module build failed: Error: ENOENT: no such file or directory, open '/home/runner/workspace/plangenie-frontend/node_modules/@babel/runtime/helpers/esm/objectWithoutPropertiesLoose.js'
+ERROR
+[eslint] Cannot find module './array-callback-return'
+Require stack:
+- /home/runner/workspace/plangenie-frontend/node_modules/eslint/lib/rules/index.js
+- /home/runner/workspace/plangenie-frontend/node_modules/eslint/lib/linter/rules.js
+- /home/runner/workspace/plangenie-frontend/node_modules/eslint/lib/linter/linter.js
+- /home/runner/workspace/plangenie-frontend/node_modules/eslint/lib/linter/index.js
+- /home/runner/workspace/plangenie-frontend/node_modules/eslint/lib/cli-engine/cli-engine.js
+- /home/runner/workspace/plangenie-frontend/node_modules/eslint/lib/eslint/eslint.js
+- /home/runner/workspace/plangenie-frontend/node_modules/eslint/lib/eslint/index.js
+- /home/runner/workspace/plangenie-frontend/node_modules/eslint/lib/api.js
+- /home/runner/workspace/plangenie-frontend/node_modules/eslint-webpack-plugin/dist/getESLint.js
+- /home/runner/workspace/plangenie-frontend/node_modules/eslint-webpack-plugin/dist/linter.js
+- /home/runner/workspace/plangenie-frontend/node_modules/eslint-webpack-plugin/dist/index.js
+- /home/runner/workspace/plangenie-frontend/node_modules/react-scripts/config/webpack.config.js
+- /home/runner/workspace/plangenie-frontend/node_modules/react-scripts/scripts/start.js
