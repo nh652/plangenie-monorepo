@@ -1,24 +1,24 @@
-
 // PlanGenie-LLM - Main Application Logic
 const express = require('express');
-const fs = require('fs');
-require('dotenv').config();
+const fetch = require("node-fetch");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middleware
 app.use(express.json());
 app.use(express.static('public'));
 
-// Load telecom plans
 let plans = [];
-try {
-  const plansData = fs.readFileSync('plans.json', 'utf8');
-  plans = JSON.parse(plansData);
-} catch (error) {
-  console.error('Error loading plans.json:', error.message);
-  plans = [];
+
+async function fetchPlansFromGitHub() {
+  const url = "https://raw.githubusercontent.com/nh652/TelcoPlans/main/telecom_plans_improved.json";
+  try {
+    const res = await fetch(url);
+    plans = await res.json();
+    console.log("✅ Telecom plans loaded from GitHub");
+  } catch (err) {
+    console.error("❌ Failed to fetch plans:", err.message);
+  }
 }
 
 // Routes
@@ -31,6 +31,7 @@ app.get('/api/plans', (req, res) => {
 });
 
 // Start server
+fetchPlansFromGitHub();
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`PlanGenie-LLM server running on port ${PORT}`);
 });
