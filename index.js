@@ -84,32 +84,44 @@ app.get('/api/plans', (req, res) => {
 });
 
 app.post("/query", async (req, res) => {
-  const userInput = req.body.text || req.body.message || "";
-
   try {
+    const userInput = req.body.text;
     const filters = await extractFiltersViaLLM(userInput);
 
+    console.log("🔎 Extracted filters:", filters);
+
     if (!Array.isArray(plans)) {
-      console.error("❌ Plans is not an array:", plans);
-      return res.status(500).json({ error: "Plan data is corrupted or unavailable" });
+      return res.status(500).json({ error: "Plans data is not loaded." });
     }
 
     const matched = plans.filter(plan => {
-      if (filters.operator && !plan.operator.toLowerCase().includes(filters.operator.toLowerCase())) return false;
-      if (filters.budget && plan.price > filters.budget) return false;
+      if (filters.operator && plan.operator.toLowerCase() !== filters.operator.toLowerCase()) return false;
+      if (filters.budget && Number(plan.price) > Number(filters.budget)) return false;
       if (filters.validity && !plan.validity.toLowerCase().includes(filters.validity.toLowerCase())) return false;
-      if (filters.type && !plan.type.toLowerCase().includes(filters.type.toLowerCase())) return false;
+      if (filters.type && plan.type && plan.type.toLowerCase() !== filters.type.toLowerCase()) return false;
       return true;
     });
+
+    // Format chatbot-style response
+    let reply = "";
+    if (matched.length === 0) {
+      reply = `🙁 Sorry, I couldn't find any ${filters.operator || ""} plans under ₹${filters.budget || "your budget"}. Try changing your query!`;
+    } else {
+      reply = `✅ Found ${matched.length} ${filters.operator || ""} plan${matched.length > 1 ? "s" : ""} under ₹${filters.budget || ""}:\n\n`;
+      matched.slice(0, 5).forEach((plan, i) => {
+        reply += `🔹 ₹${plan.price} - ${plan.validity}, ${plan.type}\n📄 ${plan.description}\n\n`;
+      });
+    }
 
     res.json({
       filters,
       count: matched.length,
-      plans: matched
+      reply,          // 🧠 New: human-friendly message
+      plans: matched  // 🔍 Still includes raw data
     });
 
   } catch (err) {
-    console.error("❌ LLM error:", err);
+    console.error("❌ LLM error:", err.message);
     res.status(500).json({ error: "Failed to process request" });
   }
 });
