@@ -20,8 +20,7 @@ import {
   Send as SendIcon,
   Person as PersonIcon,
   SmartToy as BotIcon,
-  AccountCircle,
-  Clear as ClearIcon
+  AccountCircle
 } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
@@ -35,7 +34,7 @@ const Chat = () => {
   const [lastFilters, setLastFilters] = useState(null);
   const [lastOffset, setLastOffset] = useState(null);
   const messagesEndRef = useRef(null);
-  const { user, logout } = useAuth();
+  const { logout } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -94,7 +93,7 @@ const Chat = () => {
         : { text };
 
       const response = await axios.post('/query', requestBody);
-      const { reply, filters, offset, plans, nextOffset } = response.data;
+      const { reply, filters, plans, nextOffset } = response.data;
 
       setLastFilters(filters);
       setLastOffset(nextOffset);
