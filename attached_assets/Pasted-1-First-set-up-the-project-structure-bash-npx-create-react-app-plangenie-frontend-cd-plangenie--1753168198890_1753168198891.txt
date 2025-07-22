@@ -1,0 +1,982 @@
+1. First, set up the project structure
+bash
+npx create-react-app plangenie-frontend
+cd plangenie-frontend
+npm install @mui/material @emotion/react @emotion/styled @mui/icons-material axios react-router-dom
+2. Create the main App.js with routing
+src/App.js
+
+jsx
+import React, { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { ThemeProvider, createTheme } from '@mui/material/styles';
+import CssBaseline from '@mui/material/CssBaseline';
+import { AuthProvider } from './context/AuthContext';
+import Signup from './pages/Signup';
+import Login from './pages/Login';
+import OTPLogin from './pages/OTPLogin';
+import Chat from './pages/Chat';
+import Profile from './pages/Profile';
+
+const theme = createTheme({
+  palette: {
+    primary: {
+      main: '#1976d2',
+    },
+    secondary: {
+      main: '#dc004e',
+    },
+    background: {
+      default: '#f5f5f5',
+    },
+  },
+  typography: {
+    fontFamily: 'Inter, system-ui, sans-serif',
+  },
+});
+
+function App() {
+  return (
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <AuthProvider>
+        <Router>
+          <Routes>
+            <Route path="/signup" element={<Signup />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/otp-login" element={<OTPLogin />} />
+            <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+            <Route path="/" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
+          </Routes>
+        </Router>
+      </AuthProvider>
+    </ThemeProvider>
+  );
+}
+
+const ProtectedRoute = ({ children }) => {
+  const token = localStorage.getItem('token');
+  return token ? children : <Navigate to="/login" />;
+};
+
+export default App;
+3. Create Auth Context for state management
+src/context/AuthContext.js
+
+jsx
+import React, { createContext, useState, useContext, useEffect } from 'react';
+import axios from 'axios';
+
+const AuthContext = createContext();
+
+export const useAuth = () => useContext(AuthContext);
+
+// Set your backend URL here
+const API_BASE_URL = 'http://localhost:5000'; // Change this to your Replit backend URL
+
+axios.defaults.baseURL = API_BASE_URL;
+
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      fetchProfile();
+    } else {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchProfile = async () => {
+    try {
+      const response = await axios.get('/profile');
+      setUser(response.data);
+    } catch (error) {
+      localStorage.removeItem('token');
+      delete axios.defaults.headers.common['Authorization'];
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const login = async (email, password) => {
+    const response = await axios.post('/login', { email, password });
+    const { token } = response.data;
+    localStorage.setItem('token', token);
+    axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    await fetchProfile();
+    return response.data;
+  };
+
+  const signup = async (email, password) => {
+    const response = await axios.post('/signup', { email, password });
+    return response.data;
+  };
+
+  const requestOTP = async (to) => {
+    const response = await axios.post('/otp/request', { to });
+    return response.data;
+  };
+
+  const verifyOTP = async (to, code) => {
+    const response = await axios.post('/otp/verify', { to, code });
+    const { token } = response.data;
+    localStorage.setItem('token', token);
+    axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    await fetchProfile();
+    return response.data;
+  };
+
+  const logout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('chatHistory');
+    delete axios.defaults.headers.common['Authorization'];
+    setUser(null);
+  };
+
+  const value = {
+    user,
+    login,
+    signup,
+    requestOTP,
+    verifyOTP,
+    logout,
+    loading
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+};
+4. Create Signup Page
+src/pages/Signup.js
+
+jsx
+import React, { useState } from 'react';
+import {
+  Container,
+  Paper,
+  TextField,
+  Button,
+  Typography,
+  Box,
+  Alert,
+  Link,
+  CircularProgress
+} from '@mui/material';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+
+const Signup = () => {
+  const [formData, setFormData] = useState({ email: '', password: '', confirmPassword: '' });
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
+  const { signup } = useAuth();
+
+  const handleChange = (e) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+
+    if (formData.password !== formData.confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await signup(formData.email, formData.password);
+      setSuccess('Account created successfully! Please login.');
+      setTimeout(() => navigate('/login'), 2000);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Signup failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Container maxWidth="sm" sx={{ mt: 8 }}>
+      <Paper elevation={3} sx={{ p: 4 }}>
+        <Box textAlign="center" mb={3}>
+          <Typography variant="h4" component="h1" color="primary" gutterBottom>
+            📱 PlanGenie
+          </Typography>
+          <Typography variant="h6" color="textSecondary">
+            Create your account
+          </Typography>
+        </Box>
+
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
+
+        <form onSubmit={handleSubmit}>
+          <TextField
+            fullWidth
+            label="Email"
+            name="email"
+            type="email"
+            value={formData.email}
+            onChange={handleChange}
+            margin="normal"
+            required
+            disabled={loading}
+          />
+          <TextField
+            fullWidth
+            label="Password"
+            name="password"
+            type="password"
+            value={formData.password}
+            onChange={handleChange}
+            margin="normal"
+            required
+            disabled={loading}
+          />
+          <TextField
+            fullWidth
+            label="Confirm Password"
+            name="confirmPassword"
+            type="password"
+            value={formData.confirmPassword}
+            onChange={handleChange}
+            margin="normal"
+            required
+            disabled={loading}
+          />
+          <Button
+            type="submit"
+            fullWidth
+            variant="contained"
+            sx={{ mt: 3, mb: 2 }}
+            disabled={loading}
+          >
+            {loading ? <CircularProgress size={24} /> : 'Sign Up'}
+          </Button>
+        </form>
+
+        <Box textAlign="center">
+          <Typography variant="body2">
+            Already have an account?{' '}
+            <Link component="button" onClick={() => navigate('/login')}>
+              Login here
+            </Link>
+          </Typography>
+          <Typography variant="body2" sx={{ mt: 1 }}>
+            Or{' '}
+            <Link component="button" onClick={() => navigate('/otp-login')}>
+              Login with OTP
+            </Link>
+          </Typography>
+        </Box>
+      </Paper>
+    </Container>
+  );
+};
+
+export default Signup;
+5. Create Login Page
+src/pages/Login.js
+
+jsx
+import React, { useState } from 'react';
+import {
+  Container,
+  Paper,
+  TextField,
+  Button,
+  Typography,
+  Box,
+  Alert,
+  Link,
+  CircularProgress
+} from '@mui/material';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+
+const Login = () => {
+  const [formData, setFormData] = useState({ email: '', password: '' });
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
+  const { login } = useAuth();
+
+  const handleChange = (e) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      await login(formData.email, formData.password);
+      navigate('/');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Login failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Container maxWidth="sm" sx={{ mt: 8 }}>
+      <Paper elevation={3} sx={{ p: 4 }}>
+        <Box textAlign="center" mb={3}>
+          <Typography variant="h4" component="h1" color="primary" gutterBottom>
+            📱 PlanGenie
+          </Typography>
+          <Typography variant="h6" color="textSecondary">
+            Welcome back
+          </Typography>
+        </Box>
+
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+        <form onSubmit={handleSubmit}>
+          <TextField
+            fullWidth
+            label="Email"
+            name="email"
+            type="email"
+            value={formData.email}
+            onChange={handleChange}
+            margin="normal"
+            required
+            disabled={loading}
+          />
+          <TextField
+            fullWidth
+            label="Password"
+            name="password"
+            type="password"
+            value={formData.password}
+            onChange={handleChange}
+            margin="normal"
+            required
+            disabled={loading}
+          />
+          <Button
+            type="submit"
+            fullWidth
+            variant="contained"
+            sx={{ mt: 3, mb: 2 }}
+            disabled={loading}
+          >
+            {loading ? <CircularProgress size={24} /> : 'Login'}
+          </Button>
+        </form>
+
+        <Box textAlign="center">
+          <Typography variant="body2">
+            Don't have an account?{' '}
+            <Link component="button" onClick={() => navigate('/signup')}>
+              Sign up here
+            </Link>
+          </Typography>
+          <Typography variant="body2" sx={{ mt: 1 }}>
+            Or{' '}
+            <Link component="button" onClick={() => navigate('/otp-login')}>
+              Login with OTP
+            </Link>
+          </Typography>
+        </Box>
+      </Paper>
+    </Container>
+  );
+};
+
+export default Login;
+6. Create OTP Login Page
+src/pages/OTPLogin.js
+
+jsx
+import React, { useState } from 'react';
+import {
+  Container,
+  Paper,
+  TextField,
+  Button,
+  Typography,
+  Box,
+  Alert,
+  Link,
+  CircularProgress,
+  Stepper,
+  Step,
+  StepLabel
+} from '@mui/material';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+
+const OTPLogin = () => {
+  const [step, setStep] = useState(0);
+  const [phoneEmail, setPhoneEmail] = useState('');
+  const [otp, setOtp] = useState('');
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
+  const { requestOTP, verifyOTP } = useAuth();
+
+  const handleRequestOTP = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      await requestOTP(phoneEmail);
+      setSuccess('OTP sent successfully! Check your console/logs for the OTP code.');
+      setStep(1);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to send OTP');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyOTP = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      await verifyOTP(phoneEmail, otp);
+      setSuccess('OTP verified successfully!');
+      navigate('/');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Invalid OTP');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Container maxWidth="sm" sx={{ mt: 8 }}>
+      <Paper elevation={3} sx={{ p: 4 }}>
+        <Box textAlign="center" mb={3}>
+          <Typography variant="h4" component="h1" color="primary" gutterBottom>
+            📱 PlanGenie
+          </Typography>
+          <Typography variant="h6" color="textSecondary">
+            Login with OTP
+          </Typography>
+        </Box>
+
+        <Stepper activeStep={step} sx={{ mb: 3 }}>
+          <Step>
+            <StepLabel>Enter Phone/Email</StepLabel>
+          </Step>
+          <Step>
+            <StepLabel>Verify OTP</StepLabel>
+          </Step>
+        </Stepper>
+
+        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+        {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
+
+        {step === 0 ? (
+          <form onSubmit={handleRequestOTP}>
+            <TextField
+              fullWidth
+              label="Phone or Email"
+              value={phoneEmail}
+              onChange={(e) => setPhoneEmail(e.target.value)}
+              margin="normal"
+              required
+              disabled={loading}
+              helperText="Enter your phone number or email to receive OTP"
+            />
+            <Button
+              type="submit"
+              fullWidth
+              variant="contained"
+              sx={{ mt: 3, mb: 2 }}
+              disabled={loading}
+            >
+              {loading ? <CircularProgress size={24} /> : 'Send OTP'}
+            </Button>
+          </form>
+        ) : (
+          <form onSubmit={handleVerifyOTP}>
+            <TextField
+              fullWidth
+              label="Enter OTP"
+              value={otp}
+              onChange={(e) => setOtp(e.target.value)}
+              margin="normal"
+              required
+              disabled={loading}
+              helperText="Check your console/logs for the OTP code"
+            />
+            <Button
+              type="submit"
+              fullWidth
+              variant="contained"
+              sx={{ mt: 3, mb: 2 }}
+              disabled={loading}
+            >
+              {loading ? <CircularProgress size={24} /> : 'Verify OTP'}
+            </Button>
+            <Button
+              fullWidth
+              variant="outlined"
+              onClick={() => setStep(0)}
+              disabled={loading}
+            >
+              Back
+            </Button>
+          </form>
+        )}
+
+        <Box textAlign="center" sx={{ mt: 2 }}>
+          <Typography variant="body2">
+            <Link component="button" onClick={() => navigate('/login')}>
+              Login with password
+            </Link>
+            {' | '}
+            <Link component="button" onClick={() => navigate('/signup')}>
+              Create account
+            </Link>
+          </Typography>
+        </Box>
+      </Paper>
+    </Container>
+  );
+};
+
+export default OTPLogin;
+7. Create Main Chat Interface with History
+src/pages/Chat.js
+
+jsx
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Box,
+  Container,
+  Paper,
+  TextField,
+  Button,
+  Typography,
+  Avatar,
+  AppBar,
+  Toolbar,
+  IconButton,
+  Menu,
+  MenuItem,
+  Chip,
+  CircularProgress,
+  Fab
+} from '@mui/material';
+import {
+  Send as SendIcon,
+  Person as PersonIcon,
+  SmartToy as BotIcon,
+  AccountCircle,
+  Clear as ClearIcon,
+  Add as AddIcon
+} from '@mui/icons-material';
+import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
+
+const Chat = () => {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [anchorEl, setAnchorEl] = useState(null);
+  const [lastFilters, setLastFilters] = useState(null);
+  const [lastOffset, setLastOffset] = useState(null);
+  const messagesEndRef = useRef(null);
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    // Load chat history from localStorage
+    const savedHistory = localStorage.getItem('chatHistory');
+    if (savedHistory) {
+      setMessages(JSON.parse(savedHistory));
+    } else {
+      // Initial welcome message
+      setMessages([
+        {
+          id: 1,
+          type: 'bot',
+          content: 'Hi there! 👋 I\'m PlanGenie, your telecom plan assistant. I can help you find the perfect mobile plan. Try asking me something like "Show me Jio plans under ₹400" or "I need a data-only plan for 2 months".',
+          timestamp: new Date()
+        }
+      ]);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Save chat history to localStorage whenever messages change
+    if (messages.length > 0) {
+      localStorage.setItem('chatHistory', JSON.stringify(messages));
+    }
+  }, [messages]);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const sendMessage = async (text = input, isMoreRequest = false) => {
+    if (!text.trim() && !isMoreRequest) return;
+
+    const userMessage = {
+      id: Date.now(),
+      type: 'user',
+      content: text,
+      timestamp: new Date()
+    };
+
+    if (!isMoreRequest) {
+      setMessages(prev => [...prev, userMessage]);
+      setInput('');
+    }
+
+    setLoading(true);
+
+    try {
+      const requestBody = isMoreRequest 
+        ? { text: 'more', lastFilters, lastOffset }
+        : { text };
+
+      const response = await axios.post('/query', requestBody);
+      const { reply, filters, offset, plans, nextOffset } = response.data;
+
+      setLastFilters(filters);
+      setLastOffset(nextOffset);
+
+      const botMessage = {
+        id: Date.now() + 1,
+        type: 'bot',
+        content: reply,
+        timestamp: new Date(),
+        plans: plans || [],
+        hasMore: nextOffset !== null
+      };
+
+      setMessages(prev => isMoreRequest ? [...prev, botMessage] : [...prev, botMessage]);
+    } catch (error) {
+      const errorMessage = {
+        id: Date.now() + 1,
+        type: 'bot',
+        content: error.response?.data?.error || 'Sorry, something went wrong. Please try again.',
+        timestamp: new Date(),
+        isError: true
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  };
+
+  const clearChat = () => {
+    setMessages([
+      {
+        id: 1,
+        type: 'bot',
+        content: 'Chat cleared! How can I help you find a mobile plan today?',
+        timestamp: new Date()
+      }
+    ]);
+    setLastFilters(null);
+    setLastOffset(null);
+    localStorage.removeItem('chatHistory');
+    setAnchorEl(null);
+  };
+
+  const handleMenuOpen = (event) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleMenuClose = () => {
+    setAnchorEl(null);
+  };
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
+
+  return (
+    <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+      {/* Header */}
+      <AppBar position="static" color="primary">
+        <Toolbar>
+          <BotIcon sx={{ mr: 2 }} />
+          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
+            PlanGenie Assistant
+          </Typography>
+          <IconButton color="inherit" onClick={handleMenuOpen}>
+            <AccountCircle />
+          </IconButton>
+          <Menu
+            anchorEl={anchorEl}
+            open={Boolean(anchorEl)}
+            onClose={handleMenuClose}
+          >
+            <MenuItem onClick={() => navigate('/profile')}>Profile</MenuItem>
+            <MenuItem onClick={clearChat}>Clear Chat</MenuItem>
+            <MenuItem onClick={handleLogout}>Logout</MenuItem>
+          </Menu>
+        </Toolbar>
+      </AppBar>
+
+      {/* Chat Messages */}
+      <Box sx={{ flexGrow: 1, overflow: 'auto', p: 2, bgcolor: '#f5f5f5' }}>
+        <Container maxWidth="md">
+          {messages.map((message) => (
+            <Box
+              key={message.id}
+              sx={{
+                display: 'flex',
+                mb: 2,
+                justifyContent: message.type === 'user' ? 'flex-end' : 'flex-start'
+              }}
+            >
+              {message.type === 'bot' && (
+                <Avatar sx={{ mr: 1, bgcolor: 'primary.main' }}>
+                  <BotIcon />
+                </Avatar>
+              )}
+              <Paper
+                sx={{
+                  p: 2,
+                  maxWidth: '70%',
+                  bgcolor: message.type === 'user' ? 'primary.main' : 'white',
+                  color: message.type === 'user' ? 'white' : 'text.primary',
+                  borderRadius: message.type === 'user' ? '20px 20px 5px 20px' : '20px 20px 20px 5px',
+                  ...(message.isError && { bgcolor: 'error.light', color: 'white' })
+                }}
+              >
+                <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
+                  {message.content}
+                </Typography>
+                
+                {message.plans && message.plans.length > 0 && (
+                  <Box sx={{ mt: 2 }}>
+                    {message.plans.map((plan, index) => (
+                      <Chip
+                        key={index}
+                        label={`₹${plan.price} - ${plan.data || 'N/A'} - ${plan.validity}`}
+                        variant="outlined"
+                        size="small"
+                        sx={{ mr: 1, mb: 1 }}
+                      />
+                    ))}
+                  </Box>
+                )}
+                
+                {message.hasMore && (
+                  <Box sx={{ mt: 1 }}>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => sendMessage('', true)}
+                      disabled={loading}
+                    >
+                      Show More Plans
+                    </Button>
+                  </Box>
+                )}
+                
+                <Typography variant="caption" sx={{ display: 'block', mt: 1, opacity: 0.7 }}>
+                  {new Date(message.timestamp).toLocaleTimeString()}
+                </Typography>
+              </Paper>
+              {message.type === 'user' && (
+                <Avatar sx={{ ml: 1, bgcolor: 'secondary.main' }}>
+                  <PersonIcon />
+                </Avatar>
+              )}
+            </Box>
+          ))}
+          
+          {loading && (
+            <Box sx={{ display: 'flex', justifyContent: 'flex-start', mb: 2 }}>
+              <Avatar sx={{ mr: 1, bgcolor: 'primary.main' }}>
+                <BotIcon />
+              </Avatar>
+              <Paper sx={{ p: 2, bgcolor: 'white' }}>
+                <CircularProgress size={20} />
+                <Typography variant="body2" sx={{ ml: 1, display: 'inline' }}>
+                  Thinking...
+                </Typography>
+              </Paper>
+            </Box>
+          )}
+          
+          <div ref={messagesEndRef} />
+        </Container>
+      </Box>
+
+      {/* Input Area */}
+      <Paper sx={{ p: 2, m: 2, mt: 0 }} elevation={3}>
+        <Container maxWidth="md">
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <TextField
+              fullWidth
+              placeholder="Ask me about mobile plans..."
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyPress={handleKeyPress}
+              disabled={loading}
+              multiline
+              maxRows={4}
+            />
+            <Button
+              variant="contained"
+              onClick={() => sendMessage()}
+              disabled={loading || !input.trim()}
+              sx={{ minWidth: '60px', height: '56px' }}
+            >
+              <SendIcon />
+            </Button>
+          </Box>
+        </Container>
+      </Paper>
+    </Box>
+  );
+};
+
+export default Chat;
+8. Create Profile Page
+src/pages/Profile.js
+
+jsx
+import React from 'react';
+import {
+  Container,
+  Paper,
+  Typography,
+  Box,
+  Button,
+  AppBar,
+  Toolbar,
+  IconButton
+} from '@mui/material';
+import { ArrowBack } from '@mui/icons-material';
+import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
+
+const Profile = () => {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
+
+  return (
+    <Box>
+      <AppBar position="static">
+        <Toolbar>
+          <IconButton color="inherit" onClick={() => navigate('/')}>
+            <ArrowBack />
+          </IconButton>
+          <Typography variant="h6" sx={{ flexGrow: 1 }}>
+            My Account
+          </Typography>
+        </Toolbar>
+      </AppBar>
+
+      <Container maxWidth="sm" sx={{ mt: 4 }}>
+        <Paper elevation={3} sx={{ p: 4 }}>
+          <Box textAlign="center" mb={4}>
+            <Typography variant="h4" color="primary" gutterBottom>
+              📱 PlanGenie
+            </Typography>
+            <Typography variant="h6" color="textSecondary">
+              Account Details
+            </Typography>
+          </Box>
+
+          <Box mb={3}>
+            <Typography variant="body1" color="textSecondary">
+              Email
+            </Typography>
+            <Typography variant="h6">
+              {user?.email}
+            </Typography>
+          </Box>
+
+          <Box mb={3}>
+            <Typography variant="body1" color="textSecondary">
+              Account Status
+            </Typography>
+            <Typography variant="h6" color="success.main">
+              Active
+            </Typography>
+          </Box>
+
+          <Button
+            fullWidth
+            variant="outlined"
+            color="error"
+            onClick={handleLogout}
+            sx={{ mt: 2 }}
+          >
+            Logout
+          </Button>
+        </Paper>
+      </Container>
+    </Box>
+  );
+};
+
+export default Profile;
+9. Update package.json proxy (important!)
+Add this to your package.json to proxy API calls to your backend:
+
+json
+{
+  "name": "plangenie-frontend",
+  "version": "0.1.0",
+  "proxy": "http://localhost:5000",
+  "dependencies": {
+    // ... your dependencies
+  }
+}
+10. Important: Update API_BASE_URL
+In src/context/AuthContext.js, change the API_BASE_URL to match your backend:
+
+For local development: http://localhost:5000
+
+For Replit: https://your-backend-name.replit.app
+
+11. Run your frontend
+bash
+npm start
+Features Included:
+✅ Authentication: Signup, Login, OTP Login
+✅ Chat Interface: Real-time chat with your LLM bot
+✅ Chat History: Persistent chat history stored locally
+✅ Plan Display: Shows plans with chips and "Show More" functionality
+✅ Beautiful UI: Modern Material-UI design
+✅ Responsive: Works on mobile and desktop
+✅ Profile Management: User profile and logout
+✅ Error Handling: Proper error messages and loading states
+
+The frontend will connect to your backend automatically. Make sure your backend is running and update the API_BASE_URL in the AuthContext to match your backend URL!
