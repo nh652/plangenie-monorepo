@@ -1,0 +1,141 @@
+// ✅ PlanGenie-LLM - Full Featured AI Backend in One File
+require('dotenv').config();
+const express = require('express');
+const fetch = require('node-fetch');
+const bodyParser = require('body-parser');
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+let plans = [];
+let lastUsedFilters = null; // for /more requests
+const GITHUB_JSON_URL = 'https://raw.githubusercontent.com/nh652/TelcoPlans/main/telecom_plans_improved.json';
+
+// 🧠 Step 1: Fetch and Flatten Plan Data
+async function fetchAndFlattenPlans() {
+  try {
+    const res = await fetch(GITHUB_JSON_URL);
+    const rawData = await res.json();
+    const flattened = [];
+    const providers = rawData.telecom_providers || {};
+
+    for (const operator in providers) {
+      const categories = providers[operator].plans || {};
+      for (const type in categories) {
+        const segments = categories[type];
+        if (Array.isArray(segments)) {
+          segments.forEach(p => flattened.push({ operator, ...p }));
+        } else {
+          for (const seg in segments) {
+            segments[seg].forEach(p => flattened.push({ operator, ...p }));
+          }
+        }
+      }
+    }
+
+    plans = flattened;
+    console.log('✅ Telecom plans loaded and flattened');
+  } catch (err) {
+    console.error('❌ Failed to load plan data:', err.message);
+  }
+}
+
+// 🔍 Step 2: Extract Filters via OpenRouter
+async function extractFiltersViaLLM(userText) {
+  const prompt = `Extract operator, budget (in ₹), validity (in days), and plan type from this: "${userText}". Respond in JSON only like: {"operator":..., "budget":..., "validity":..., "type":...}`;
+
+  try {
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'openai/gpt-3.5-turbo',
+        messages: [
+          { role: 'system', content: 'You extract structured filters from natural queries.' },
+          { role: 'user', content: prompt }
+        ]
+      })
+    });
+
+    const data = await res.json();
+    const text = data.choices?.[0]?.message?.content || '';
+    console.log('🧠 LLM raw reply:', text);
+
+    return JSON.parse(text);
+  } catch (err) {
+    console.error('❌ LLM error:', err.message);
+    return {};
+  }
+}
+
+// 🧹 Step 3: Match Plans with Filters
+function matchPlans(filters, all = false) {
+  let result = plans;
+
+  if (filters.operator)
+    result = result.filter(p => p.operator.toLowerCase().includes(filters.operator.toLowerCase()));
+
+  if (filters.budget)
+    result = result.filter(p => p.price <= filters.budget);
+
+  if (filters.validity)
+    result = result.filter(p => Number(p.validity) >= filters.validity);
+
+  if (filters.type) {
+    const type = filters.type.toLowerCase();
+    if (type.includes('voice'))
+      result = result.filter(p => (p.category || '').toLowerCase().includes('voice'));
+    else if (type.includes('data'))
+      result = result.filter(p => (p.data || '').includes('GB'));
+    else if (['prepaid', 'postpaid'].includes(type))
+      result = result.filter(p => (p.type || '').toLowerCase() === type);
+  }
+
+  result = result.sort((a, b) => a.price - b.price);
+  return all ? result : result.slice(0, 8);
+}
+
+// 🎯 Step 4: Smart Response
+function formatReply(plans, filters) {
+  if (plans.length === 0) return `🙁 Sorry, I couldn't find any ${filters.operator || ''} plans under ₹${filters.budget || ''}. Try changing your query!`;
+  return `📦 Showing ${plans.length} ${filters.operator || ''} plans${filters.budget ? ' under ₹' + filters.budget : ''}:`;
+}
+
+// 🌐 API
+app.use(bodyParser.json());
+
+app.get('/', (req, res) => {
+  res.send('📡 PlanGenie-LLM is live');
+});
+
+app.post('/query', async (req, res) => {
+  const text = req.body.text || '';
+  if (!text) return res.status(400).json({ error: 'Query text is required' });
+
+  const filters = await extractFiltersViaLLM(text);
+  const matched = matchPlans(filters);
+  lastUsedFilters = filters;
+
+  res.json({
+    filters,
+    count: matched.length,
+    reply: formatReply(matched, filters),
+    plans: matched
+  });
+});
+
+app.get('/more', (req, res) => {
+  if (!lastUsedFilters) return res.status(400).json({ error: 'No previous query found' });
+  const all = matchPlans(lastUsedFilters, true);
+  res.json({
+    count: all.length,
+    reply: `🔁 Showing more plans (${all.length})`,
+    plans: all.slice(8, 16)
+  });
+});
+
+// 🔄 Init
+fetchAndFlattenPlans();
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 PlanGenie-LLM running at ${PORT}`));
