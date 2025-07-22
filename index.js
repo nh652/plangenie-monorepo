@@ -1,186 +1,141 @@
-// PlanGenie-LLM - Main Application Logic
+// ✅ PlanGenie-LLM - Full Featured AI Backend in One File
 require('dotenv').config();
 const express = require('express');
 const fetch = require('node-fetch');
-const OpenAI = require('openai');
-const openai = new OpenAI({ apiKey: process.env.OPENROUTER_API_KEY });
-
+const bodyParser = require('body-parser');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.use(express.json());
-app.use(express.static('public'));
-
 let plans = [];
+let lastUsedFilters = null; // for /more requests
+const GITHUB_JSON_URL = 'https://raw.githubusercontent.com/nh652/TelcoPlans/main/telecom_plans_improved.json';
 
-const operatorMap = {
-  jio: 'jio',
-  airtel: 'airtel',
-  vi: 'vi',
-  vodafone: 'vi',
-};
+// 🧠 Step 1: Fetch and Flatten Plan Data
+async function fetchAndFlattenPlans() {
+  try {
+    const res = await fetch(GITHUB_JSON_URL);
+    const rawData = await res.json();
+    const flattened = [];
+    const providers = rawData.telecom_providers || {};
 
-const keywordsForVoiceOnly = ['voice only', 'calling only', 'call only'];
-const durationAliases = {
-  '28': 1, '30': 1, '56': 2, '60': 2,
-  '84': 3, '90': 3, '336': 12, '365': 12
-};
-
-function normalizeDuration(days) {
-  const val = String(days);
-  return durationAliases[val] || null;
-}
-
-function flattenPlansNested(nested) {
-  const result = [];
-  for (const category in nested) {
-    if (Array.isArray(nested[category])) {
-      result.push(...nested[category]);
-    } else {
-      result.push(...flattenPlansNested(nested[category]));
-    }
-  }
-  return result;
-}
-
-function paginate(arr, page = 1, pageSize = 8) {
-  const start = (page - 1) * pageSize;
-  return arr.slice(start, start + pageSize);
-}
-
-function flattenPlans(data) {
-  const flat = [];
-
-  const providers = data.telecom_providers;
-
-  for (const [operator, operatorData] of Object.entries(providers)) {
-    const planSections = operatorData.plans;
-
-    for (const planType of Object.values(planSections)) {
-      if (Array.isArray(planType)) {
-        // e.g., postpaid: []
-        for (const plan of planType) {
-          flat.push({ ...plan, operator });
-        }
-      } else if (typeof planType === 'object') {
-        // e.g., prepaid: { monthly_plans: [], voice_only_plans: [] }
-        for (const planGroup of Object.values(planType)) {
-          if (Array.isArray(planGroup)) {
-            for (const plan of planGroup) {
-              flat.push({ ...plan, operator });
-            }
+    for (const operator in providers) {
+      const categories = providers[operator].plans || {};
+      for (const type in categories) {
+        const segments = categories[type];
+        if (Array.isArray(segments)) {
+          segments.forEach(p => flattened.push({ operator, ...p }));
+        } else {
+          for (const seg in segments) {
+            segments[seg].forEach(p => flattened.push({ operator, ...p }));
           }
         }
       }
     }
-  }
 
-  return flat;
-}
-
-async function fetchPlansFromGitHub() {
-  const url = "https://raw.githubusercontent.com/nh652/TelcoPlans/main/telecom_plans_improved.json";
-  try {
-    const res = await fetch(url);
-    const data = await res.json();
-    plans = data; // Store raw nested data for new logic
-    console.log(`✅ Loaded plans data from GitHub`);
+    plans = flattened;
+    console.log('✅ Telecom plans loaded and flattened');
   } catch (err) {
-    console.error("❌ Failed to fetch plans:", err.message);
+    console.error('❌ Failed to load plan data:', err.message);
   }
 }
 
-async function extractFiltersViaLLM(message) {
-  const prompt = `
-Extract operator (jio, airtel, vi), budget (₹ amount), validity (in days), and plan type (voice only, data only, postpaid, prepaid, etc) from the following user message. Respond in strict JSON like:
-{"operator":"jio","budget":200,"validity":28,"type":"prepaid"}
+// 🔍 Step 2: Extract Filters via OpenRouter
+async function extractFiltersViaLLM(userText) {
+  const prompt = `Extract operator, budget (in ₹), validity (in days), and plan type from this: "${userText}". Respond in JSON only like: {"operator":..., "budget":..., "validity":..., "type":...}`;
 
-User message: "${message}"
-`;
   try {
-    const response = await openai.chat.completions.create({
-      model: 'openchat/openchat-3.5-1210',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.3,
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'openai/gpt-3.5-turbo',
+        messages: [
+          { role: 'system', content: 'You extract structured filters from natural queries.' },
+          { role: 'user', content: prompt }
+        ]
+      })
     });
 
-    const jsonStart = response.choices[0].message.content.indexOf('{');
-    const jsonRaw = response.choices[0].message.content.slice(jsonStart).trim();
-    return JSON.parse(jsonRaw);
+    const data = await res.json();
+    const text = data.choices?.[0]?.message?.content || '';
+    console.log('🧠 LLM raw reply:', text);
+
+    return JSON.parse(text);
   } catch (err) {
     console.error('❌ LLM error:', err.message);
-    return null;
+    return {};
   }
 }
 
-// Routes
-app.get('/', (req, res) => {
-  res.json({ message: 'PlanGenie-LLM API is running!' });
-});
+// 🧹 Step 3: Match Plans with Filters
+function matchPlans(filters, all = false) {
+  let result = plans;
 
-app.get('/api/plans', (req, res) => {
-  res.json(plans);
+  if (filters.operator)
+    result = result.filter(p => p.operator.toLowerCase().includes(filters.operator.toLowerCase()));
+
+  if (filters.budget)
+    result = result.filter(p => p.price <= filters.budget);
+
+  if (filters.validity)
+    result = result.filter(p => Number(p.validity) >= filters.validity);
+
+  if (filters.type) {
+    const type = filters.type.toLowerCase();
+    if (type.includes('voice'))
+      result = result.filter(p => (p.category || '').toLowerCase().includes('voice'));
+    else if (type.includes('data'))
+      result = result.filter(p => (p.data || '').includes('GB'));
+    else if (['prepaid', 'postpaid'].includes(type))
+      result = result.filter(p => (p.type || '').toLowerCase() === type);
+  }
+
+  result = result.sort((a, b) => a.price - b.price);
+  return all ? result : result.slice(0, 8);
+}
+
+// 🎯 Step 4: Smart Response
+function formatReply(plans, filters) {
+  if (plans.length === 0) return `🙁 Sorry, I couldn't find any ${filters.operator || ''} plans under ₹${filters.budget || ''}. Try changing your query!`;
+  return `📦 Showing ${plans.length} ${filters.operator || ''} plans${filters.budget ? ' under ₹' + filters.budget : ''}:`;
+}
+
+// 🌐 API
+app.use(bodyParser.json());
+
+app.get('/', (req, res) => {
+  res.send('📡 PlanGenie-LLM is live');
 });
 
 app.post('/query', async (req, res) => {
-  const userMessage = req.body.text || '';
-  const filters = await extractFiltersViaLLM(userMessage);
-  if (!filters) {
-    return res.status(500).json({ error: 'LLM extraction failed' });
-  }
+  const text = req.body.text || '';
+  if (!text) return res.status(400).json({ error: 'Query text is required' });
 
-  const { operator, budget, validity, type } = filters;
-  let matchedPlans = [];
-
-  const opKey = operatorMap[operator?.toLowerCase()];
-  if (!opKey || !plans.telecom_providers[opKey]) {
-    return res.json({
-      filters,
-      count: 0,
-      reply: `🙁 I couldn't find any plans for "${operator}". Try again.`,
-      plans: [],
-    });
-  }
-
-  // Flatten all nested plans
-  const flatPlans = flattenPlansNested(plans.telecom_providers[opKey].plans);
-  matchedPlans = flatPlans.filter(plan => {
-    const priceMatch = budget ? plan.price <= budget : true;
-    const validityMatch = validity ? normalizeDuration(plan.validity) === normalizeDuration(validity) : true;
-
-    const typeMatch = type
-      ? (type.toLowerCase().includes('voice') && (plan.category?.toLowerCase().includes('voice') || plan.data === '0GB')) ||
-        (type.toLowerCase().includes('data') && plan.data !== '0GB')
-      : true;
-
-    return priceMatch && validityMatch && typeMatch;
-  });
-
-  const reply =
-    matchedPlans.length === 0
-      ? `🙁 Sorry, I couldn't find any ${operator} plans${budget ? ` under ₹${budget}` : ''}. Try changing your query!`
-      : `✅ Found ${matchedPlans.length} ${operator} plan${matchedPlans.length > 1 ? 's' : ''}${
-          budget ? ` under ₹${budget}` : ''
-        }:\n\n` +
-        paginate(matchedPlans, 1)
-          .map(
-            p =>
-              `🔹 ₹${p.price} – ${p.validity} days, ${p.type || 'prepaid'}\n📄 ${p.benefits}${
-                p.additional_benefits ? `\n✨ ${p.additional_benefits}` : ''
-              }`
-          )
-          .join('\n\n');
+  const filters = await extractFiltersViaLLM(text);
+  const matched = matchPlans(filters);
+  lastUsedFilters = filters;
 
   res.json({
     filters,
-    count: matchedPlans.length,
-    reply,
-    plans: paginate(matchedPlans, 1),
+    count: matched.length,
+    reply: formatReply(matched, filters),
+    plans: matched
   });
 });
 
-// Start server
-fetchPlansFromGitHub();
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`PlanGenie-LLM server running on port ${PORT}`);
+app.get('/more', (req, res) => {
+  if (!lastUsedFilters) return res.status(400).json({ error: 'No previous query found' });
+  const all = matchPlans(lastUsedFilters, true);
+  res.json({
+    count: all.length,
+    reply: `🔁 Showing more plans (${all.length})`,
+    plans: all.slice(8, 16)
+  });
 });
+
+// 🔄 Init
+fetchAndFlattenPlans();
+app.listen(PORT, '0.0.0.0', () => console.log(`🚀 PlanGenie-LLM running at ${PORT}`));
