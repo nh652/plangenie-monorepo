@@ -8,41 +8,49 @@ import {
   Typography,
   Box,
   Alert,
-  Link,
-  CircularProgress
+  CircularProgress,
+  Link
 } from '@mui/material';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useNavigate, Link as RouterLink } from 'react-router-dom';
 
 const Signup = () => {
-  const [formData, setFormData] = useState({ email: '', password: '', confirmPassword: '' });
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
   const { signup } = useAuth();
-
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
+  const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setSuccess('');
 
-    if (formData.password !== formData.confirmPassword) {
+    if (password !== confirmPassword) {
       setError('Passwords do not match');
       return;
     }
 
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters long');
+      return;
+    }
+
     setLoading(true);
+
     try {
-      await signup(formData.email, formData.password);
-      setSuccess('Account created successfully! Please login.');
-      setTimeout(() => navigate('/login'), 2000);
+      const result = await signup(email, password);
+      if (result.success) {
+        setSuccess('Account created successfully! You can now login.');
+        setTimeout(() => navigate('/login'), 2000);
+      } else {
+        setError(result.error);
+      }
     } catch (err) {
-      setError(err.response?.data?.error || 'Signup failed');
+      setError('Signup failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -67,10 +75,9 @@ const Signup = () => {
           <TextField
             fullWidth
             label="Email"
-            name="email"
             type="email"
-            value={formData.email}
-            onChange={handleChange}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
             margin="normal"
             required
             disabled={loading}
@@ -78,10 +85,9 @@ const Signup = () => {
           <TextField
             fullWidth
             label="Password"
-            name="password"
             type="password"
-            value={formData.password}
-            onChange={handleChange}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
             margin="normal"
             required
             disabled={loading}
@@ -89,10 +95,9 @@ const Signup = () => {
           <TextField
             fullWidth
             label="Confirm Password"
-            name="confirmPassword"
             type="password"
-            value={formData.confirmPassword}
-            onChange={handleChange}
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
             margin="normal"
             required
             disabled={loading}
@@ -108,19 +113,10 @@ const Signup = () => {
           </Button>
         </form>
 
-        <Box textAlign="center">
-          <Typography variant="body2">
-            Already have an account?{' '}
-            <Link component="button" onClick={() => navigate('/login')}>
-              Login here
-            </Link>
-          </Typography>
-          <Typography variant="body2" sx={{ mt: 1 }}>
-            Or{' '}
-            <Link component="button" onClick={() => navigate('/otp-login')}>
-              Login with OTP
-            </Link>
-          </Typography>
+        <Box textAlign="center" mt={2}>
+          <Link component={RouterLink} to="/login" variant="body2">
+            Already have an account? Login
+          </Link>
         </Box>
       </Paper>
     </Container>

@@ -26,6 +26,32 @@ import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Container,
+  Typography,
+  TextField,
+  Button,
+  Paper,
+  Box,
+  AppBar,
+  Toolbar,
+  IconButton,
+  Menu,
+  MenuItem,
+  Chip,
+  CircularProgress
+} from '@mui/material';
+import {
+  Send,
+  AccountCircle,
+  SmartToy as BotIcon,
+  Person as UserIcon
+} from '@mui/icons-material';
+import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
+
 const Chat = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
@@ -72,6 +98,201 @@ const Chat = () => {
 
   const sendMessage = async (text = input, isMoreRequest = false) => {
     if (!text.trim() && !isMoreRequest) return;
+
+    const userMessage = {
+      id: Date.now(),
+      type: 'user',
+      content: text,
+      timestamp: new Date()
+    };
+
+    if (!isMoreRequest) {
+      setMessages(prev => [...prev, userMessage]);
+      setInput('');
+    }
+
+    setLoading(true);
+
+    try {
+      const API_BASE = process.env.REACT_APP_API_URL || '';
+      const response = await axios.post(`${API_BASE}/query`, {
+        text: text,
+        lastFilters: isMoreRequest ? lastFilters : null,
+        lastOffset: isMoreRequest ? lastOffset : null
+      });
+
+      const { reply, plans, filters, nextOffset } = response.data;
+
+      setLastFilters(filters);
+      setLastOffset(nextOffset);
+
+      const botMessage = {
+        id: Date.now() + 1,
+        type: 'bot',
+        content: reply,
+        plans: plans || [],
+        timestamp: new Date()
+      };
+
+      setMessages(prev => isMoreRequest ? prev : [...prev, botMessage]);
+      if (isMoreRequest) {
+        setMessages(prev => [...prev, botMessage]);
+      }
+
+    } catch (error) {
+      const errorMessage = {
+        id: Date.now() + 1,
+        type: 'bot',
+        content: 'Sorry, I encountered an error. Please try again later.',
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const clearChat = () => {
+    setMessages([
+      {
+        id: 1,
+        type: 'bot',
+        content: 'Chat cleared! How can I help you find a mobile plan today?',
+        timestamp: new Date()
+      }
+    ]);
+    setLastFilters(null);
+    setLastOffset(null);
+    localStorage.removeItem('chatHistory');
+    setAnchorEl(null);
+  };
+
+  const handleMenuOpen = (event) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleMenuClose = () => {
+    setAnchorEl(null);
+  };
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
+
+  return (
+    <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+      {/* Header */}
+      <AppBar position="static" color="primary">
+        <Toolbar>
+          <BotIcon sx={{ mr: 2 }} />
+          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
+            PlanGenie Assistant
+          </Typography>
+          <IconButton color="inherit" onClick={handleMenuOpen}>
+            <AccountCircle />
+          </IconButton>
+          <Menu
+            anchorEl={anchorEl}
+            open={Boolean(anchorEl)}
+            onClose={handleMenuClose}
+          >
+            <MenuItem onClick={() => navigate('/profile')}>Profile</MenuItem>
+            <MenuItem onClick={clearChat}>Clear Chat</MenuItem>
+            <MenuItem onClick={handleLogout}>Logout</MenuItem>
+          </Menu>
+        </Toolbar>
+      </AppBar>
+
+      {/* Messages Container */}
+      <Container maxWidth="md" sx={{ flexGrow: 1, overflow: 'auto', py: 2 }}>
+        {messages.map((message) => (
+          <Box
+            key={message.id}
+            sx={{
+              display: 'flex',
+              justifyContent: message.type === 'user' ? 'flex-end' : 'flex-start',
+              mb: 2
+            }}
+          >
+            <Paper
+              elevation={1}
+              sx={{
+                p: 2,
+                maxWidth: '80%',
+                backgroundColor: message.type === 'user' ? 'primary.main' : 'grey.100',
+                color: message.type === 'user' ? 'primary.contrastText' : 'text.primary'
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                {message.type === 'user' ? <UserIcon sx={{ mr: 1 }} /> : <BotIcon sx={{ mr: 1 }} />}
+                <Typography variant="caption">
+                  {message.type === 'user' ? 'You' : 'PlanGenie'}
+                </Typography>
+              </Box>
+              <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
+                {message.content}
+              </Typography>
+              {message.plans && message.plans.length > 0 && (
+                <Box sx={{ mt: 2 }}>
+                  {message.plans.map((plan, index) => (
+                    <Chip
+                      key={index}
+                      label={`₹${plan.price} - ${plan.data || 'N/A'} - ${plan.validity}`}
+                      variant="outlined"
+                      size="small"
+                      sx={{ mr: 1, mb: 1 }}
+                    />
+                  ))}
+                </Box>
+              )}
+            </Paper>
+          </Box>
+        ))}
+
+        {loading && (
+          <Box sx={{ display: 'flex', justifyContent: 'flex-start', mb: 2 }}>
+            <Paper elevation={1} sx={{ p: 2, backgroundColor: 'grey.100' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                <CircularProgress size={20} sx={{ mr: 1 }} />
+                <Typography variant="body2" sx={{ ml: 1, display: 'inline' }}>
+                  Thinking...
+                </Typography>
+              </Box>
+            </Paper>
+          </Box>
+        )}
+        
+        <div ref={messagesEndRef} />
+      </Container>
+
+      {/* Input Area */}
+      <Paper elevation={3} sx={{ p: 2 }}>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <TextField
+            fullWidth
+            variant="outlined"
+            placeholder="Ask me about mobile plans..."
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+            disabled={loading}
+          />
+          <Button
+            variant="contained"
+            endIcon={<Send />}
+            onClick={() => sendMessage()}
+            disabled={loading || !input.trim()}
+          >
+            Send
+          </Button>
+        </Box>
+      </Paper>
+    </Box>
+  );
+};
+
+export default Chat;turn;
 
     const userMessage = {
       id: Date.now(),

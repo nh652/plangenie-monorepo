@@ -8,22 +8,19 @@ import {
   Typography,
   Box,
   Alert,
-  Link,
-  CircularProgress
+  CircularProgress,
+  Link
 } from '@mui/material';
-import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useNavigate, Link as RouterLink } from 'react-router-dom';
 
 const Login = () => {
-  const [formData, setFormData] = useState({ email: '', password: '' });
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
   const { login } = useAuth();
-
-  const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
+  const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -31,10 +28,14 @@ const Login = () => {
     setLoading(true);
 
     try {
-      await login(formData.email, formData.password);
-      navigate('/');
+      const result = await login(email, password);
+      if (result.success) {
+        navigate('/');
+      } else {
+        setError(result.error);
+      }
     } catch (err) {
-      setError(err.response?.data?.error || 'Login failed');
+      setError('Login failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -48,7 +49,7 @@ const Login = () => {
             📱 PlanGenie
           </Typography>
           <Typography variant="h6" color="textSecondary">
-            Welcome back
+            Login to your account
           </Typography>
         </Box>
 
@@ -58,10 +59,9 @@ const Login = () => {
           <TextField
             fullWidth
             label="Email"
-            name="email"
             type="email"
-            value={formData.email}
-            onChange={handleChange}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
             margin="normal"
             required
             disabled={loading}
@@ -69,10 +69,9 @@ const Login = () => {
           <TextField
             fullWidth
             label="Password"
-            name="password"
             type="password"
-            value={formData.password}
-            onChange={handleChange}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
             margin="normal"
             required
             disabled={loading}
@@ -88,19 +87,14 @@ const Login = () => {
           </Button>
         </form>
 
-        <Box textAlign="center">
-          <Typography variant="body2">
-            Don't have an account?{' '}
-            <Link component="button" onClick={() => navigate('/signup')}>
-              Sign up here
-            </Link>
-          </Typography>
-          <Typography variant="body2" sx={{ mt: 1 }}>
-            Or{' '}
-            <Link component="button" onClick={() => navigate('/otp-login')}>
-              Login with OTP
-            </Link>
-          </Typography>
+        <Box textAlign="center" mt={2}>
+          <Link component={RouterLink} to="/signup" variant="body2">
+            Don't have an account? Sign up
+          </Link>
+          <br />
+          <Link component={RouterLink} to="/otp-login" variant="body2">
+            Login with OTP
+          </Link>
         </Box>
       </Paper>
     </Container>
