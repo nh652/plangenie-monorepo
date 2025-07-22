@@ -3,9 +3,18 @@ require('dotenv').config();
 const express = require('express');
 const fetch = require('node-fetch');
 const bodyParser = require('body-parser');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 app.use(bodyParser.json());
+
+// Authentication constants
+const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret_here_change_in_production';
+
+// In-memory stores (replace with database in production)
+const users = {}; // { "user@email.com": { password: "<hashed>" } }
+const otps = {}; // { "destination": { code: "123456", expires: <timestamp> } }
 
 const PORT = process.env.PORT || 5000;
 const GITHUB_JSON_URL = 'https://raw.githubusercontent.com/nh652/TelcoPlans/main/telecom_plans_improved.json';
@@ -216,6 +225,19 @@ function formatResponse({ plans, total }, filter, { pageOffset }) {
   return s.trim();
 }
 
+// Authentication middleware
+function requireAuth(req, res, next) {
+  const header = req.headers.authorization;
+  const token = header && header.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'Please log in' });
+  try {
+    req.user = jwt.verify(token, JWT_SECRET);
+    next();
+  } catch {
+    res.status(401).json({ error: 'Invalid or expired token' });
+  }
+}
+
 // Rate limiting middleware
 app.use((req, res, next) => {
   const ip = req.ip;
@@ -229,6 +251,56 @@ app.use((req, res, next) => {
 
 // Routes
 app.get('/', (req, res) => res.send('📡 PlanGenie-LLM v3 (GPT-powered human-like replies) is live!'));
+
+// Authentication Routes
+app.post('/signup', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) return res.status(400).json({ error: 'Email & password required' });
+  if (users[email]) return res.status(400).json({ error: 'User already exists' });
+
+  const hash = await bcrypt.hash(password, 10);
+  users[email] = { password: hash };
+  res.json({ message: 'Signup successful' });
+});
+
+app.post('/login', async (req, res) => {
+  const { email, password } = req.body;
+  const user = users[email];
+  if (!user) return res.status(400).json({ error: 'User not found' });
+  const valid = await bcrypt.compare(password, user.password);
+  if (!valid) return res.status(400).json({ error: 'Wrong password' });
+
+  const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: '6h' });
+  res.json({ token });
+});
+
+// OTP Routes
+app.post('/otp/request', (req, res) => {
+  const { to } = req.body;
+  if (!to) return res.status(400).json({ error: 'Phone/email required' });
+  
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  otps[to] = { code, expires: Date.now() + 3 * 60 * 1000 }; // 3 minutes
+  console.log(`OTP for ${to}: ${code}`); // In production, send via SMS/email
+  res.json({ message: 'OTP sent' });
+});
+
+app.post('/otp/verify', (req, res) => {
+  const { to, code } = req.body;
+  const sent = otps[to];
+  if (!sent || sent.code !== code || Date.now() > sent.expires) {
+    return res.status(400).json({ error: 'Invalid or expired OTP' });
+  }
+  delete otps[to];
+  const token = jwt.sign({ email: to }, JWT_SECRET, { expiresIn: '6h' });
+  res.json({ token });
+});
+
+// Profile endpoint
+app.get('/profile', requireAuth, (req, res) => {
+  const user = users[req.user.email];
+  res.json({ email: req.user.email, registered: !!user });
+});
 
 app.get('/health', async (req, res) => {
   const start = Date.now();
@@ -244,7 +316,7 @@ app.get('/health', async (req, res) => {
   }
 });
 
-app.post('/query', async (req, res) => {
+app.post('/query', requireAuth, async (req, res) => {
   const userText = (req.body.text || '').trim();
   if (!userText) return res.status(400).json({ error: 'Query text is required' });
 
@@ -322,4 +394,4 @@ app.use((err, req, res, _next)=>{
   res.status(500).json({ error:'Sorry, a server error occurred.' });
 });
 
-app.listen(PORT, '0.0.0.0', ()=>log(`🚀 PlanGenie-LLM (fully humanlike replies!) running at ${PORT}`));
+app.listen(PORT, '0.0.0.0', ()=>log(`🚀 PlanGenie-LLM (with authentication!) running at ${PORT}`));
