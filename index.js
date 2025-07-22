@@ -15,10 +15,12 @@ async function fetchPlansFromGitHub() {
   const url = "https://raw.githubusercontent.com/nh652/TelcoPlans/main/telecom_plans_improved.json";
   try {
     const res = await fetch(url);
-    plans = await res.json();
+    const data = await res.json();
+    plans = Array.isArray(data) ? data : [];
     console.log("✅ Telecom plans loaded from GitHub");
   } catch (err) {
     console.error("❌ Failed to fetch plans:", err.message);
+    plans = []; // Ensure plans is always an array
   }
 }
 
@@ -52,12 +54,18 @@ If anything is missing, use null. Output only valid JSON like:
 
   const data = await response.json();
   const raw = data.choices?.[0]?.message?.content?.trim();
+  console.log("🧠 LLM raw reply:", raw);
 
   try {
     return JSON.parse(raw);
-  } catch {
+  } catch (e) {
     console.warn("⚠️ GPT returned non-JSON:", raw);
-    return { operator: null, budget: null, validity: null, type: null };
+    return {
+      operator: null,
+      budget: null,
+      validity: null,
+      type: null
+    };
   }
 }
 
