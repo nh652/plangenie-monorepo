@@ -12,3 +12,15 @@ channel = "stable-24_11"
 run = ["node", "index.js"]
 deploymentTarget = "autoscale"
 ignorePorts = false
+
+[workflows]
+runButton = "Start PlanGenie-LLM"
+
+[[workflows.workflow]]
+name = "Start PlanGenie-LLM"
+author = 42384360
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node app_llm.js"

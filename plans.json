@@ -1,0 +1,45 @@
+
+{
+  "plans": [
+    {
+      "id": 1,
+      "provider": "VerizonPlus",
+      "name": "Unlimited Premium",
+      "type": "postpaid",
+      "price": 85,
+      "data": "unlimited",
+      "features": ["5G access", "Mobile hotspot", "International calling"],
+      "description": "Premium unlimited plan with 5G access and premium features"
+    },
+    {
+      "id": 2,
+      "provider": "T-Mobile",
+      "name": "Magenta Max",
+      "type": "postpaid", 
+      "price": 75,
+      "data": "unlimited",
+      "features": ["5G included", "Netflix included", "International roaming"],
+      "description": "Unlimited 5G plan with entertainment perks"
+    },
+    {
+      "id": 3,
+      "provider": "AT&T",
+      "name": "Unlimited Starter",
+      "type": "postpaid",
+      "price": 65,
+      "data": "unlimited",
+      "features": ["5G access", "Mobile hotspot 3GB"],
+      "description": "Entry-level unlimited plan with basic features"
+    },
+    {
+      "id": 4,
+      "provider": "Mint Mobile",
+      "name": "15GB Plan",
+      "type": "prepaid",
+      "price": 25,
+      "data": "15GB",
+      "features": ["4G LTE", "Mobile hotspot"],
+      "description": "Affordable prepaid plan with generous data allowance"
+    }
+  ]
+}
