@@ -1,7 +1,7 @@
 {
   "name": "plangenie-monorepo",
   "version": "1.0.0",
-  "description": "Standalone backend for PlanGenie",
+  "description": "The main package file for the PlanGenie application.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
