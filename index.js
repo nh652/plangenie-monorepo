@@ -1,19 +1,27 @@
-
 require("dotenv").config();
 const express = require("express");
 const axios = require("axios");
 const bodyParser = require("body-parser");
 const admin = require("firebase-admin");
 const cors = require("cors");
-const path = require("path"); // <-- Make sure path is required
+const path = require("path");
 
 console.log("🚀 Starting PlanGenie Server...");
 
+// --- NEW: Firebase Admin Setup with Base64 Decoding ---
 try {
-  if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
-    throw new Error("FIREBASE_SERVICE_ACCOUNT secret is not set.");
+  if (!process.env.FIREBASE_SERVICE_ACCOUNT_BASE64) {
+    throw new Error("FIREBASE_SERVICE_ACCOUNT_BASE64 secret is not set.");
   }
-  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+  // Decode the Base64 string from secrets into a normal string
+  const decoded = Buffer.from(
+    process.env.FIREBASE_SERVICE_ACCOUNT_BASE64,
+    "base64"
+  ).toString("utf8");
+  
+  // Parse the decoded string as a JSON object
+  const serviceAccount = JSON.parse(decoded);
+
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
   });
@@ -23,11 +31,12 @@ try {
   process.exit(1);
 }
 
+
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// --- IMPORTANT: Serve the static frontend build files ---
+// --- Serve the static frontend build files ---
 app.use(express.static(path.join(__dirname, 'plangenie-frontend', 'build')));
 
 const GITHUB_JSON_URL = "https://raw.githubusercontent.com/nh652/TelcoPlans/main/telecom_plans_improved.json";
@@ -131,7 +140,6 @@ async function verifyFirebaseToken(req, res, next) {
 }
 
 // --- API Routes ---
-// It's good practice to prefix API routes to avoid conflicts
 app.post("/api/query", verifyFirebaseToken, async (req, res) => {
   const userText = (req.body.text || "").trim();
   const chatHistory = req.body.history || [];
@@ -172,4 +180,3 @@ app.listen(PORT, "0.0.0.0", () => {
 }).on('error', (err) => {
     console.error("🔥 Server startup error:", err);
 });
-
