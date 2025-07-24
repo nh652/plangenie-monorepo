@@ -3,7 +3,7 @@ const express = require("express");
 const axios = require("axios");
 const bodyParser = require("body-parser");
 const admin = require("firebase-admin");
-const cors = require("cors");  
+const cors = require("cors");
 const path = require("path");
 
 console.log("🚀 Starting PlanGenie Server...");
@@ -138,6 +138,11 @@ async function verifyFirebaseToken(req, res, next) {
     return res.status(403).json({ error: "Unauthorized: Invalid token" });
   }
 }
+
+// --- Default Route ---
+app.get("/", (req, res) => {
+  res.send("✅ PlanGenie backend is running!");
+});
 
 // --- API Routes ---
 app.post("/api/query", verifyFirebaseToken, async (req, res) => {
