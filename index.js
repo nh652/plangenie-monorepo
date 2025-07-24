@@ -3,7 +3,7 @@ const express = require("express");
 const axios = require("axios");
 const bodyParser = require("body-parser");
 const admin = require("firebase-admin");
-const cors = require("cors");
+const cors = require("cors");  
 const path = require("path");
 
 console.log("🚀 Starting PlanGenie Server...");
