@@ -1,89 +1,59 @@
-
-import React, { createContext, useState, useContext, useEffect } from 'react';
-import axios from 'axios';
+import React, { createContext, useState, useContext, useEffect } from "react";
+import { 
+    onAuthStateChanged, 
+    createUserWithEmailAndPassword, 
+    signInWithEmailAndPassword, 
+    signOut,
+    updateProfile // <-- Import updateProfile
+} from "firebase/auth";
+import { auth } from "../firebase"; // Your firebase.js file
 
 const AuthContext = createContext();
 
 export const useAuth = () => useContext(AuthContext);
-
-const API_BASE = process.env.REACT_APP_API_URL || '';
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      setUser({ token });
-    }
-    setLoading(false);
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setLoading(false);
+    });
+    return () => unsubscribe();
   }, []);
 
-  const login = async (email, password) => {
-    try {
-      const response = await axios.post(`${API_BASE}/login`, { email, password });
-      const { token } = response.data;
-      localStorage.setItem('token', token);
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      setUser({ token });
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: error.response?.data?.error || 'Login failed' };
-    }
+  // NEW: Signup now accepts a name and updates the user's profile
+  const signup = async (name, email, password) => {
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    // After creating the user, update their profile with the name
+    await updateProfile(userCredential.user, {
+        displayName: name
+    });
+    // Refresh the user state to include the new display name
+    setUser({ ...userCredential.user, displayName: name });
+    return userCredential;
   };
 
-  const signup = async (email, password) => {
-    try {
-      await axios.post(`${API_BASE}/signup`, { email, password });
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: error.response?.data?.error || 'Signup failed' };
-    }
+  const login = (email, password) => {
+    return signInWithEmailAndPassword(auth, email, password);
   };
 
   const logout = () => {
-    localStorage.removeItem('token');
-    delete axios.defaults.headers.common['Authorization'];
-    setUser(null);
-  };
-
-  const requestOTP = async (to) => {
-    try {
-      await axios.post(`${API_BASE}/otp/request`, { to });
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: error.response?.data?.error || 'OTP request failed' };
-    }
-  };
-
-  const verifyOTP = async (to, code) => {
-    try {
-      const response = await axios.post(`${API_BASE}/otp/verify`, { to, code });
-      const { token } = response.data;
-      localStorage.setItem('token', token);
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      setUser({ token });
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: error.response?.data?.error || 'OTP verification failed' };
-    }
+    return signOut(auth);
   };
 
   const value = {
     user,
-    login,
     signup,
+    login,
     logout,
-    requestOTP,
-    verifyOTP,
-    loading
   };
 
   return (
     <AuthContext.Provider value={value}>
-      {children}
+      {!loading && children}
     </AuthContext.Provider>
   );
 };

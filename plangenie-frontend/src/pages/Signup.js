@@ -1,126 +1,100 @@
-
 import React, { useState } from 'react';
-import {
-  Container,
-  Paper,
-  TextField,
-  Button,
-  Typography,
-  Box,
-  Alert,
-  CircularProgress,
-  Link
-} from '@mui/material';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { useNavigate, Link as RouterLink } from 'react-router-dom';
+import './Auth.css';
 
-const Signup = () => {
+function Signup() {
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const { signup } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
-    setSuccess('');
-
-    if (password !== confirmPassword) {
-      setError('Passwords do not match');
-      return;
+    if (!name) {
+        setError("Please enter your name.");
+        return;
     }
-
     if (password.length < 6) {
-      setError('Password must be at least 6 characters long');
+      setError("Password must be at least 6 characters long.");
       return;
     }
-
+    setError('');
     setLoading(true);
 
     try {
-      const result = await signup(email, password);
-      if (result.success) {
-        setSuccess('Account created successfully! You can now login.');
-        setTimeout(() => navigate('/login'), 2000);
-      } else {
-        setError(result.error);
-      }
+      await signup(name, email, password);
+      navigate('/login', { state: { message: 'Signup successful! Please log in.' } });
     } catch (err) {
-      setError('Signup failed. Please try again.');
-    } finally {
-      setLoading(false);
+      if (err.code === 'auth/email-already-in-use') {
+        setError('This email is already registered. Please try logging in.');
+      } else {
+        setError('Failed to create an account. Please try again.');
+      }
+      console.error("Signup failed:", err);
     }
+    setLoading(false);
   };
 
   return (
-    <Container maxWidth="sm" sx={{ mt: 8 }}>
-      <Paper elevation={3} sx={{ p: 4 }}>
-        <Box textAlign="center" mb={3}>
-          <Typography variant="h4" component="h1" color="primary" gutterBottom>
-            📱 PlanGenie
-          </Typography>
-          <Typography variant="h6" color="textSecondary">
-            Create your account
-          </Typography>
-        </Box>
+    <div className="auth-container">
+      {/* NEW: Home Navigation Button */}
+      <Link to="/" className="home-link" title="Back to Home">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+            <polyline points="9 22 9 12 15 12 15 22"></polyline>
+        </svg>
+      </Link>
 
-        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-        {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
-
-        <form onSubmit={handleSubmit}>
-          <TextField
-            fullWidth
-            label="Email"
+      <h2>Create Account</h2>
+      <p>Get started with your own Plan Genie.</p>
+      {error && <div className="error-message">{error}</div>}
+      <form className="auth-form" onSubmit={handleSubmit}>
+        <div className="input-group">
+          <label htmlFor="name">Name</label>
+          <input
+            type="text"
+            id="name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Your Name"
+            required
+          />
+        </div>
+        <div className="input-group">
+          <label htmlFor="email">Email</label>
+          <input
             type="email"
+            id="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            margin="normal"
+            placeholder="you@example.com"
             required
-            disabled={loading}
           />
-          <TextField
-            fullWidth
-            label="Password"
+        </div>
+        <div className="input-group">
+          <label htmlFor="password">Password</label>
+          <input
             type="password"
+            id="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            margin="normal"
+            placeholder="Minimum 6 characters"
             required
-            disabled={loading}
           />
-          <TextField
-            fullWidth
-            label="Confirm Password"
-            type="password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            margin="normal"
-            required
-            disabled={loading}
-          />
-          <Button
-            type="submit"
-            fullWidth
-            variant="contained"
-            sx={{ mt: 3, mb: 2 }}
-            disabled={loading}
-          >
-            {loading ? <CircularProgress size={24} /> : 'Sign Up'}
-          </Button>
-        </form>
-
-        <Box textAlign="center" mt={2}>
-          <Link component={RouterLink} to="/login" variant="body2">
-            Already have an account? Login
-          </Link>
-        </Box>
-      </Paper>
-    </Container>
+        </div>
+        <button className="auth-button" type="submit" disabled={loading}>
+          {loading ? 'Creating Account...' : 'Sign Up'}
+        </button>
+      </form>
+      <div className="auth-link">
+        Already have an account? <Link to="/login">Log In</Link>
+      </div>
+    </div>
   );
-};
+}
 
 export default Signup;

@@ -1,522 +1,195 @@
 
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  Box,
-  Container,
-  Paper,
-  TextField,
-  Button,
-  Typography,
-  Avatar,
-  AppBar,
-  Toolbar,
-  IconButton,
-  Menu,
-  MenuItem,
-  Chip,
-  CircularProgress
-} from '@mui/material';
-import {
-  Send as SendIcon,
-  Person as PersonIcon,
-  SmartToy as BotIcon,
-  AccountCircle
-} from '@mui/icons-material';
-import { useAuth } from '../context/AuthContext';
-import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import React, { useState, useEffect, useRef } from "react";
+import { Link } from "react-router-dom";
+import axios from "axios";
+import { useAuth } from "../context/AuthContext";
+import "./Chat.css";
 
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  Container,
-  Typography,
-  TextField,
-  Button,
-  Paper,
-  Box,
-  AppBar,
-  Toolbar,
-  IconButton,
-  Menu,
-  MenuItem,
-  Chip,
-  CircularProgress
-} from '@mui/material';
-import {
-  Send,
-  AccountCircle,
-  SmartToy as BotIcon,
-  Person as UserIcon
-} from '@mui/icons-material';
-import { useAuth } from '../context/AuthContext';
-import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+// The API_URL is now a relative path to your own server
+const API_URL = "/api";
 
-const Chat = () => {
+const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Good morning";
+    if (hour < 18) return "Good afternoon";
+    return "Good evening";
+};
+
+function Chat() {
   const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [anchorEl, setAnchorEl] = useState(null);
-  const [lastFilters, setLastFilters] = useState(null);
-  const [lastOffset, setLastOffset] = useState(null);
+  const { user, logout } = useAuth();
   const messagesEndRef = useRef(null);
-  const { logout } = useAuth();
-  const navigate = useNavigate();
 
-  useEffect(() => {
-    // Load chat history from localStorage
-    const savedHistory = localStorage.getItem('chatHistory');
-    if (savedHistory) {
-      setMessages(JSON.parse(savedHistory));
-    } else {
-      // Initial welcome message
-      setMessages([
-        {
-          id: 1,
-          type: 'bot',
-          content: 'Hi there! 👋 I\'m PlanGenie, your telecom plan assistant. I can help you find the perfect mobile plan. Try asking me something like "Show me Jio plans under ₹400" or "I need a data-only plan for 2 months".',
-          timestamp: new Date()
-        }
-      ]);
-    }
-  }, []);
-
-  useEffect(() => {
-    // Save chat history to localStorage whenever messages change
-    if (messages.length > 0) {
-      localStorage.setItem('chatHistory', JSON.stringify(messages));
-    }
-  }, [messages]);
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, loading]);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  const handleSend = async (e, predefinedQuery = null) => {
+    e.preventDefault();
+    const query = predefinedQuery || input;
+    if (!query.trim() || loading || !user) return;
 
-  const sendMessage = async (text = input, isMoreRequest = false) => {
-    if (!text.trim() && !isMoreRequest) return;
+    const newUserMessage = { role: "user", content: query };
+    const currentMessages = messages.length === 0 && !loading ? [newUserMessage] : [...messages, newUserMessage];
 
-    const userMessage = {
-      id: Date.now(),
-      type: 'user',
-      content: text,
-      timestamp: new Date()
-    };
-
-    if (!isMoreRequest) {
-      setMessages(prev => [...prev, userMessage]);
-      setInput('');
-    }
-
+    setMessages(currentMessages);
+    setInput("");
     setLoading(true);
 
     try {
-      const API_BASE = process.env.REACT_APP_API_URL || '';
-      const response = await axios.post(`${API_BASE}/query`, {
-        text: text,
-        lastFilters: isMoreRequest ? lastFilters : null,
-        lastOffset: isMoreRequest ? lastOffset : null
-      });
+      const token = await user.getIdToken();
+      const historyForBackend = currentMessages
+        .filter((msg) => msg.role !== "system")
+        .map(({ role, content }) => ({ role, content }));
 
-      const { reply, plans, filters, nextOffset } = response.data;
+      const response = await axios.post(
+        `${API_URL}/query`, // <-- Now calls /api/query
+        { text: query, history: historyForBackend },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
 
-      setLastFilters(filters);
-      setLastOffset(nextOffset);
-
-      const botMessage = {
-        id: Date.now() + 1,
-        type: 'bot',
-        content: reply,
-        plans: plans || [],
-        timestamp: new Date()
-      };
-
-      setMessages(prev => isMoreRequest ? prev : [...prev, botMessage]);
-      if (isMoreRequest) {
-        setMessages(prev => [...prev, botMessage]);
-      }
+      const botMessage = { role: "assistant", content: response.data.reply };
+      setMessages((prev) => [...prev, botMessage]);
 
     } catch (error) {
+      const errorMessageText =
+        error.response?.data?.error || "Failed to get response.";
+      console.error("Chat error:", errorMessageText);
+      if (error.response?.status === 401 || error.response?.status === 403) {
+        logout();
+      }
       const errorMessage = {
-        id: Date.now() + 1,
-        type: 'bot',
-        content: 'Sorry, I encountered an error. Please try again later.',
-        timestamp: new Date()
+        role: "assistant",
+        content: `Error: ${errorMessageText}`,
       };
-      setMessages(prev => [...prev, errorMessage]);
+      setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setLoading(false);
     }
   };
 
-  const clearChat = () => {
-    setMessages([
-      {
-        id: 1,
-        type: 'bot',
-        content: 'Chat cleared! How can I help you find a mobile plan today?',
-        timestamp: new Date()
-      }
-    ]);
-    setLastFilters(null);
-    setLastOffset(null);
-    localStorage.removeItem('chatHistory');
-    setAnchorEl(null);
-  };
-
-  const handleMenuOpen = (event) => {
-    setAnchorEl(event.currentTarget);
-  };
-
-  const handleMenuClose = () => {
-    setAnchorEl(null);
-  };
-
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
+  const examplePrompts = [
+      "Jio plan under 500",
+      "Airtel yearly plan with OTT",
+      "Cheapest Vi plan with SMS",
+      "Compare Jio and Airtel 28 day plans"
+  ];
 
   return (
-    <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      {/* Header */}
-      <AppBar position="static" color="primary">
-        <Toolbar>
-          <BotIcon sx={{ mr: 2 }} />
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            PlanGenie Assistant
-          </Typography>
-          <IconButton color="inherit" onClick={handleMenuOpen}>
-            <AccountCircle />
-          </IconButton>
-          <Menu
-            anchorEl={anchorEl}
-            open={Boolean(anchorEl)}
-            onClose={handleMenuClose}
-          >
-            <MenuItem onClick={() => navigate('/profile')}>Profile</MenuItem>
-            <MenuItem onClick={clearChat}>Clear Chat</MenuItem>
-            <MenuItem onClick={handleLogout}>Logout</MenuItem>
-          </Menu>
-        </Toolbar>
-      </AppBar>
-
-      {/* Messages Container */}
-      <Container maxWidth="md" sx={{ flexGrow: 1, overflow: 'auto', py: 2 }}>
-        {messages.map((message) => (
-          <Box
-            key={message.id}
-            sx={{
-              display: 'flex',
-              justifyContent: message.type === 'user' ? 'flex-end' : 'flex-start',
-              mb: 2
-            }}
-          >
-            <Paper
-              elevation={1}
-              sx={{
-                p: 2,
-                maxWidth: '80%',
-                backgroundColor: message.type === 'user' ? 'primary.main' : 'grey.100',
-                color: message.type === 'user' ? 'primary.contrastText' : 'text.primary'
-              }}
-            >
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                {message.type === 'user' ? <UserIcon sx={{ mr: 1 }} /> : <BotIcon sx={{ mr: 1 }} />}
-                <Typography variant="caption">
-                  {message.type === 'user' ? 'You' : 'PlanGenie'}
-                </Typography>
-              </Box>
-              <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
-                {message.content}
-              </Typography>
-              {message.plans && message.plans.length > 0 && (
-                <Box sx={{ mt: 2 }}>
-                  {message.plans.map((plan, index) => (
-                    <Chip
-                      key={index}
-                      label={`₹${plan.price} - ${plan.data || 'N/A'} - ${plan.validity}`}
-                      variant="outlined"
-                      size="small"
-                      sx={{ mr: 1, mb: 1 }}
-                    />
-                  ))}
-                </Box>
-              )}
-            </Paper>
-          </Box>
-        ))}
-
-        {loading && (
-          <Box sx={{ display: 'flex', justifyContent: 'flex-start', mb: 2 }}>
-            <Paper elevation={1} sx={{ p: 2, backgroundColor: 'grey.100' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                <CircularProgress size={20} sx={{ mr: 1 }} />
-                <Typography variant="body2" sx={{ ml: 1, display: 'inline' }}>
-                  Thinking...
-                </Typography>
-              </Box>
-            </Paper>
-          </Box>
-        )}
-        
-        <div ref={messagesEndRef} />
-      </Container>
-
-      {/* Input Area */}
-      <Paper elevation={3} sx={{ p: 2 }}>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <TextField
-            fullWidth
-            variant="outlined"
-            placeholder="Ask me about mobile plans..."
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-            disabled={loading}
-          />
-          <Button
-            variant="contained"
-            endIcon={<Send />}
-            onClick={() => sendMessage()}
-            disabled={loading || !input.trim()}
-          >
-            Send
-          </Button>
-        </Box>
-      </Paper>
-    </Box>
-  );
-};
-
-export default Chat;turn;
-
-    const userMessage = {
-      id: Date.now(),
-      type: 'user',
-      content: text,
-      timestamp: new Date()
-    };
-
-    if (!isMoreRequest) {
-      setMessages(prev => [...prev, userMessage]);
-      setInput('');
-    }
-
-    setLoading(true);
-
-    try {
-      const requestBody = isMoreRequest 
-        ? { text: 'more', lastFilters, lastOffset }
-        : { text };
-
-      const response = await axios.post('/query', requestBody);
-      const { reply, filters, plans, nextOffset } = response.data;
-
-      setLastFilters(filters);
-      setLastOffset(nextOffset);
-
-      const botMessage = {
-        id: Date.now() + 1,
-        type: 'bot',
-        content: reply,
-        timestamp: new Date(),
-        plans: plans || [],
-        hasMore: nextOffset !== null
-      };
-
-      setMessages(prev => isMoreRequest ? [...prev, botMessage] : [...prev, botMessage]);
-    } catch (error) {
-      const errorMessage = {
-        id: Date.now() + 1,
-        type: 'bot',
-        content: error.response?.data?.error || 'Sorry, something went wrong. Please try again.',
-        timestamp: new Date(),
-        isError: true
-      };
-      setMessages(prev => [...prev, errorMessage]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  };
-
-  const clearChat = () => {
-    setMessages([
-      {
-        id: 1,
-        type: 'bot',
-        content: 'Chat cleared! How can I help you find a mobile plan today?',
-        timestamp: new Date()
-      }
-    ]);
-    setLastFilters(null);
-    setLastOffset(null);
-    localStorage.removeItem('chatHistory');
-    setAnchorEl(null);
-  };
-
-  const handleMenuOpen = (event) => {
-    setAnchorEl(event.currentTarget);
-  };
-
-  const handleMenuClose = () => {
-    setAnchorEl(null);
-  };
-
-  const handleLogout = () => {
-    logout();
-    navigate('/login');
-  };
-
-  return (
-    <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      {/* Header */}
-      <AppBar position="static" color="primary">
-        <Toolbar>
-          <BotIcon sx={{ mr: 2 }} />
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            PlanGenie Assistant
-          </Typography>
-          <IconButton color="inherit" onClick={handleMenuOpen}>
-            <AccountCircle />
-          </IconButton>
-          <Menu
-            anchorEl={anchorEl}
-            open={Boolean(anchorEl)}
-            onClose={handleMenuClose}
-          >
-            <MenuItem onClick={() => navigate('/profile')}>Profile</MenuItem>
-            <MenuItem onClick={clearChat}>Clear Chat</MenuItem>
-            <MenuItem onClick={handleLogout}>Logout</MenuItem>
-          </Menu>
-        </Toolbar>
-      </AppBar>
-
-      {/* Chat Messages */}
-      <Box sx={{ flexGrow: 1, overflow: 'auto', p: 2, bgcolor: '#f5f5f5' }}>
-        <Container maxWidth="md">
-          {messages.map((message) => (
-            <Box
-              key={message.id}
-              sx={{
-                display: 'flex',
-                mb: 2,
-                justifyContent: message.type === 'user' ? 'flex-end' : 'flex-start'
-              }}
-            >
-              {message.type === 'bot' && (
-                <Avatar sx={{ mr: 1, bgcolor: 'primary.main' }}>
-                  <BotIcon />
-                </Avatar>
-              )}
-              <Paper
-                sx={{
-                  p: 2,
-                  maxWidth: '70%',
-                  bgcolor: message.type === 'user' ? 'primary.main' : 'white',
-                  color: message.type === 'user' ? 'white' : 'text.primary',
-                  borderRadius: message.type === 'user' ? '20px 20px 5px 20px' : '20px 20px 20px 5px',
-                  ...(message.isError && { bgcolor: 'error.light', color: 'white' })
-                }}
-              >
-                <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
-                  {message.content}
-                </Typography>
-                
-                {message.plans && message.plans.length > 0 && (
-                  <Box sx={{ mt: 2 }}>
-                    {message.plans.map((plan, index) => (
-                      <Chip
-                        key={index}
-                        label={`₹${plan.price} - ${plan.data || 'N/A'} - ${plan.validity}`}
-                        variant="outlined"
-                        size="small"
-                        sx={{ mr: 1, mb: 1 }}
-                      />
+    <div className="chat-page-container">
+        <aside className="chat-sidebar left-sidebar">
+            <h3>Quick Info</h3>
+            <div className="info-card">
+                <h4>Example Prompts</h4>
+                <ul>
+                    {examplePrompts.map((prompt, index) => (
+                        <li key={index} onClick={(e) => handleSend(e, prompt)}>
+                            {prompt}
+                        </li>
                     ))}
-                  </Box>
-                )}
-                
-                {message.hasMore && (
-                  <Box sx={{ mt: 1 }}>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={() => sendMessage('', true)}
-                      disabled={loading}
-                    >
-                      Show More Plans
-                    </Button>
-                  </Box>
-                )}
-                
-                <Typography variant="caption" sx={{ display: 'block', mt: 1, opacity: 0.7 }}>
-                  {new Date(message.timestamp).toLocaleTimeString()}
-                </Typography>
-              </Paper>
-              {message.type === 'user' && (
-                <Avatar sx={{ ml: 1, bgcolor: 'secondary.main' }}>
-                  <PersonIcon />
-                </Avatar>
-              )}
-            </Box>
-          ))}
-          
-          {loading && (
-            <Box sx={{ display: 'flex', justifyContent: 'flex-start', mb: 2 }}>
-              <Avatar sx={{ mr: 1, bgcolor: 'primary.main' }}>
-                <BotIcon />
-              </Avatar>
-              <Paper sx={{ p: 2, bgcolor: 'white' }}>
-                <CircularProgress size={20} />
-                <Typography variant="body2" sx={{ ml: 1, display: 'inline' }}>
-                  Thinking...
-                </Typography>
-              </Paper>
-            </Box>
-          )}
-          
-          <div ref={messagesEndRef} />
-        </Container>
-      </Box>
+                </ul>
+            </div>
+        </aside>
 
-      {/* Input Area */}
-      <Paper sx={{ p: 2, m: 2, mt: 0 }} elevation={3}>
-        <Container maxWidth="md">
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <TextField
-              fullWidth
-              placeholder="Ask me about mobile plans..."
+        <div className="chat-container">
+          <div className="chat-header">
+            <div className="header-nav-icons">
+              <Link to="/" className="nav-icon-btn" title="Home">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                  <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                </svg>
+              </Link>
+              <Link to="/profile" className="nav-icon-btn" title="Profile">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                  <circle cx="12" cy="7" r="4"></circle>
+                </svg>
+              </Link>
+            </div>
+            <h2>Plan Genie 🧞</h2>
+            <button className="logout-button" onClick={logout}>
+              Logout
+            </button>
+          </div>
+          <div className="chat-messages">
+            {messages.length === 0 && !loading && (
+                <div className="greeting-container">
+                    <h1 className="greeting-title">{getGreeting()}, {user?.displayName || 'there'}!</h1>
+                    <p className="greeting-subtitle">How can I help you today?</p>
+                </div>
+            )}
+
+            {messages.map((msg, index) => (
+              <div
+                key={index}
+                className={`message-wrapper ${msg.role === "user" ? "user-wrapper" : "bot-wrapper"}`}
+              >
+                <div className={`message ${msg.role === "user" ? "user" : "bot"}`}>
+                  <p
+                    style={{ whiteSpace: "pre-wrap" }}
+                    dangerouslySetInnerHTML={{
+                      __html: msg.content.replace(
+                        /\*\*(.*?)\*\*/g,
+                        "<strong>$1</strong>"
+                      ),
+                    }}
+                  ></p>
+                </div>
+              </div>
+            ))}
+            {loading && (
+              <div className="message-wrapper bot-wrapper">
+                <div className="message bot typing-indicator">
+                  <span></span><span></span><span></span>
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+          <form className="chat-input-form" onSubmit={handleSend}>
+            <input
+              type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyPress={handleKeyPress}
+              placeholder="e.g., Jio plan under 500 for 3 months"
               disabled={loading}
-              multiline
-              maxRows={4}
             />
-            <Button
-              variant="contained"
-              onClick={() => sendMessage()}
-              disabled={loading || !input.trim()}
-              sx={{ minWidth: '60px', height: '56px' }}
-            >
-              <SendIcon />
-            </Button>
-          </Box>
-        </Container>
-      </Paper>
-    </Box>
+            <button type="submit" disabled={loading}>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+              </svg>
+            </button>
+          </form>
+        </div>
+
+        <aside className="chat-sidebar right-sidebar">
+            <h3>💡 Genie's Tips</h3>
+            <div className="tips-list">
+                <div className="tip-item">You can easily port your number to a new operator.</div>
+                <div className="tip-item">Yearly plans often offer significant savings.</div>
+                <div className="tip-item">Check for 'unlimited 5G' offers from Jio and Airtel.</div>
+            </div>
+        </aside>
+    </div>
   );
-};
+}
 
 export default Chat;

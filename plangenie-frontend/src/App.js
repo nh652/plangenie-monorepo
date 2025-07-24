@@ -1,16 +1,43 @@
+
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './context/AuthContext';
+
+// Import Layout Components
+import Header from './components/Header';
+import Footer from './components/Footer';
+
+// Import Pages
+import HomePage from './pages/HomePage';
+import AboutPage from './pages/AboutPage';
+import ProfilePage from './pages/ProfilePage';
 import Chat from './pages/Chat';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
-import OTPLogin from './pages/OTPLogin';
-import Profile from './pages/Profile';
-import { AuthProvider, useAuth } from './context/AuthContext';
+
 import './App.css';
 
 function ProtectedRoute({ children }) {
   const { user } = useAuth();
   return user ? children : <Navigate to="/login" />;
+}
+
+function MainLayout({ children }) {
+  return (
+    <>
+      <Header />
+      <main className="main-content">{children}</main>
+      <Footer />
+    </>
+  );
+}
+
+function CenteredLayout({ children }) {
+    return (
+        <div className="centered-layout-container">
+            {children}
+        </div>
+    );
 }
 
 function App() {
@@ -19,20 +46,27 @@ function App() {
       <Router>
         <div className="App">
           <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/signup" element={<Signup />} />
-            <Route path="/otp-login" element={<OTPLogin />} />
+            {/* Routes with Header and Footer */}
+            <Route path="/" element={<MainLayout><HomePage /></MainLayout>} />
+            <Route path="/about" element={<MainLayout><AboutPage /></MainLayout>} />
             <Route path="/profile" element={
               <ProtectedRoute>
-                <Profile />
+                <MainLayout><ProfilePage /></MainLayout>
               </ProtectedRoute>
             } />
+
+            {/* CHAT ROUTE NOW USES THE FULL PAGE, NOT CENTERED LAYOUT */}
             <Route path="/chat" element={
               <ProtectedRoute>
                 <Chat />
               </ProtectedRoute>
             } />
-            <Route path="/" element={<Navigate to="/chat" />} />
+
+            {/* Centered routes for login/signup */}
+            <Route path="/login" element={<CenteredLayout><Login /></CenteredLayout>} />
+            <Route path="/signup" element={<CenteredLayout><Signup /></CenteredLayout>} />
+
+            <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </div>
       </Router>

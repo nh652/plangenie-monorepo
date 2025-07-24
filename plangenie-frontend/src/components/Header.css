@@ -1,0 +1,77 @@
+.site-header {
+  background-color: rgba(18, 18, 18, 0.8);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 15px 5%;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}
+
+.header-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.logo {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #fff;
+  text-decoration: none;
+}
+
+.main-nav {
+  display: flex;
+  gap: 30px;
+}
+
+.main-nav a {
+  color: #a0a0a0;
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.2s ease;
+}
+
+.main-nav a:hover,
+.main-nav a.active {
+  color: #fff;
+}
+
+.auth-buttons {
+  display: flex;
+  gap: 15px;
+}
+
+.header-button {
+  padding: 8px 16px;
+  border-radius: 6px;
+  text-decoration: none;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.login-btn {
+  background-color: transparent;
+  color: #fff;
+  border: 1px solid #444;
+}
+
+.login-btn:hover {
+  background-color: #333;
+}
+
+.signup-btn {
+  background: linear-gradient(90deg, #007aff, #00c6ff);
+  color: white;
+  border: none;
+}
+
+.logout-btn {
+  background-color: #c93434;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+}
