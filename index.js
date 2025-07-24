@@ -8,18 +8,15 @@ const path = require("path");
 
 console.log("🚀 Starting PlanGenie Server...");
 
-// --- NEW: Firebase Admin Setup with Base64 Decoding ---
+// --- Firebase Admin Setup with Base64 Decoding ---
 try {
   if (!process.env.FIREBASE_SERVICE_ACCOUNT_BASE64) {
     throw new Error("FIREBASE_SERVICE_ACCOUNT_BASE64 secret is not set.");
   }
-  // Decode the Base64 string from secrets into a normal string
   const decoded = Buffer.from(
     process.env.FIREBASE_SERVICE_ACCOUNT_BASE64,
     "base64"
   ).toString("utf8");
-  
-  // Parse the decoded string as a JSON object
   const serviceAccount = JSON.parse(decoded);
 
   admin.initializeApp({
@@ -179,8 +176,9 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'plangenie-frontend', 'build', 'index.html'));
 });
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, "0.0.0.0", () => {
+// UPDATED PORT CONFIGURATION
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
   console.log(`🚀 Server is listening on port ${PORT}`);
 }).on('error', (err) => {
     console.error("🔥 Server startup error:", err);
