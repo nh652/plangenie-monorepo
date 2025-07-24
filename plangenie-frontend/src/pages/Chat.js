@@ -5,8 +5,9 @@ import axios from "axios";
 import { useAuth } from "../context/AuthContext";
 import "./Chat.css";
 
-// The API_URL is now a relative path to your own server
-const API_URL = "/api";
+// NEW: The API_URL now comes from an environment variable.
+// This is the standard way to handle URLs for deployed applications.
+const API_URL = process.env.REACT_APP_BACKEND_URL;
 
 const getGreeting = () => {
     const hour = new Date().getHours();
@@ -37,7 +38,7 @@ function Chat() {
 
     const newUserMessage = { role: "user", content: query };
     const currentMessages = messages.length === 0 && !loading ? [newUserMessage] : [...messages, newUserMessage];
-
+    
     setMessages(currentMessages);
     setInput("");
     setLoading(true);
@@ -48,8 +49,9 @@ function Chat() {
         .filter((msg) => msg.role !== "system")
         .map(({ role, content }) => ({ role, content }));
 
+      // The request now uses the full backend URL from the environment variable.
       const response = await axios.post(
-        `${API_URL}/query`, // <-- Now calls /api/query
+        `${API_URL}/api/query`, 
         { text: query, history: historyForBackend },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -73,6 +75,8 @@ function Chat() {
       setLoading(false);
     }
   };
+
+  // ... (rest of the component is unchanged)
 
   const examplePrompts = [
       "Jio plan under 500",
