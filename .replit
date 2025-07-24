@@ -1,25 +1,14 @@
-# This is the content for your .replit file
+entrypoint = "index.js"
+modules = ["nodejs-22"]
+hidden = [".config", "package-lock.json"]
 
-language = "nodejs"
+[gitHubImport]
+requiredFiles = [".replit", "replit.nix", "package.json", "package-lock.json"]
 
-# The command that will be executed when you click the "Run" button.
-# This explicitly tells Replit to use the "start" script from your root package.json file.
-run = "npm start"
-
-# This section tells Replit's UI which ports to open and what to do with them.
-[[ports]]
-# This is for your React frontend development server
-localPort = 3001
-name = "Web"
-onOpen = "open-browser"
-
-[[ports]]
-# This is for your Node.js backend server
-localPort = 5000
-name = "API"
-onOpen = "open-preview"
-
-# This ensures the correct version of Node.js is used, which makes 'npm' available.
 [nix]
-channel = "stable-23_11"
-paks = ["nodejs-20_x"]
+channel = "stable-24_11"
+
+[deployment]
+run = ["node", "index.js"]
+deploymentTarget = "autoscale"
+ignorePorts = false
