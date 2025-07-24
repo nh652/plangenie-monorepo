@@ -1,19 +1,14 @@
-# .replit
-language = "nodejs"
 entrypoint = "index.js"
+modules = ["nodejs-22"]
+hidden = [".config", "package-lock.json"]
 
-[env]
-PORT = "5000"
+[gitHubImport]
+requiredFiles = [".replit", "replit.nix", "package.json", "package-lock.json"]
 
-[interpreter]
-command = ["node"]
+[nix]
+channel = "stable-24_11"
 
-[[ports]]
-localPort = 3001
-name = "Web"
-onOpen = "open-browser"
-
-[[ports]]
-localPort = 5000
-name = "API"
-onOpen = "open-preview"
+[deployment]
+run = ["node", "index.js"]
+deploymentTarget = "autoscale"
+ignorePorts = false
