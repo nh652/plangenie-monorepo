@@ -1,47 +1,25 @@
-entrypoint = "index.js"
-modules = ["nodejs-22"]
-hidden = [".config", "package-lock.json"]
+# This is the content for your .replit file
 
-[gitHubImport]
-requiredFiles = [".replit", "replit.nix", "package.json", "package-lock.json"]
+language = "nodejs"
 
-[nix]
-channel = "stable-24_11"
+# The command that will be executed when you click the "Run" button.
+# This explicitly tells Replit to use the "start" script from your root package.json file.
+run = "npm start"
 
-[deployment]
-run = ["node", "index.js"]
-deploymentTarget = "autoscale"
-ignorePorts = false
-
-[workflows]
-runButton = "Start PlanGenie-LLM"
-
-[[workflows.workflow]]
-name = "Start PlanGenie-LLM"
-author = 42384360
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "node index.js"
-
-[[workflows.workflow]]
-name = "Start Frontend"
-author = 42384360
-mode = "sequential"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd plangenie-frontend && npm start"
-
+# This section tells Replit's UI which ports to open and what to do with them.
 [[ports]]
-localPort = 3000
-externalPort = 3000
-
-[[ports]]
+# This is for your React frontend development server
 localPort = 3001
-externalPort = 3001
+name = "Web"
+onOpen = "open-browser"
 
 [[ports]]
+# This is for your Node.js backend server
 localPort = 5000
-externalPort = 80
+name = "API"
+onOpen = "open-preview"
+
+# This ensures the correct version of Node.js is used, which makes 'npm' available.
+[nix]
+channel = "stable-23_11"
+paks = ["nodejs-20_x"]
